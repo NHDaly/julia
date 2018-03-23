@@ -1,22 +1,41 @@
-# This file is a part of Julia. License is MIT: http://julialang.org/license
+# This file is a part of Julia. License is MIT: https://julialang.org/license
 
 module Sys
+@doc """
+Provide methods for retrieving information about hardware and the operating system.
+""" Sys
 
-export  CPU_CORES,
-        WORD_SIZE,
-        ARCH,
-        MACHINE,
-        KERNEL,
-        JIT,
-        cpu_info,
-        cpu_name,
-        cpu_summary,
-        uptime,
-        loadavg,
-        free_memory,
-        total_memory
+export BINDIR,
+       CPU_CORES,
+       CPU_NAME,
+       WORD_SIZE,
+       ARCH,
+       MACHINE,
+       KERNEL,
+       JIT,
+       cpu_info,
+       cpu_summary,
+       uptime,
+       loadavg,
+       free_memory,
+       total_memory,
+       isapple,
+       isbsd,
+       islinux,
+       isunix,
+       iswindows
 
 import ..Base: show
+
+global BINDIR = ccall(:jl_get_julia_bindir, Any, ())
+"""
+    Sys.BINDIR
+
+A string containing the full path to the directory containing the `julia` executable.
+"""
+:BINDIR
+
+# helper to avoid triggering precompile warnings
 
 global CPU_CORES
 """
@@ -58,13 +77,21 @@ Standard word size on the current machine, in bits.
 const WORD_SIZE = Core.sizeof(Int) * 8
 
 function __init__()
-    # set CPU core count
-    global CPU_CORES =
-        haskey(ENV,"JULIA_CPU_CORES") ? parse(Int,ENV["JULIA_CPU_CORES"]) :
-                                        Int(ccall(:jl_cpu_cores, Int32, ()))
+    env_cores = get(ENV, "JULIA_CPU_CORES", "")
+    global CPU_CORES = if !isempty(env_cores)
+        env_cores = tryparse(Int, env_cores)
+        if !(env_cores isa Int && env_cores > 0)
+            Core.print(Core.stderr, "WARNING: couldn't parse `JULIA_CPU_CORES` environment variable. Defaulting Sys.CPU_CORES to 1.\n")
+            env_cores = 1
+        end
+        env_cores
+    else
+        Int(ccall(:jl_cpu_cores, Int32, ()))
+    end
     global SC_CLK_TCK = ccall(:jl_SC_CLK_TCK, Clong, ())
-    global cpu_name = ccall(:jl_get_cpu_name, Ref{String}, ())
+    global CPU_NAME = ccall(:jl_get_cpu_name, Ref{String}, ())
     global JIT = ccall(:jl_get_JIT, Ref{String}, ())
+    global BINDIR = ccall(:jl_get_julia_bindir, Any, ())
 end
 
 mutable struct UV_cpu_info_t
@@ -90,14 +117,35 @@ CPUinfo(info::UV_cpu_info_t) = CPUinfo(unsafe_string(info.model), info.speed,
     info.cpu_times!user, info.cpu_times!nice, info.cpu_times!sys,
     info.cpu_times!idle, info.cpu_times!irq)
 
-show(io::IO, info::CPUinfo) = Base._show_cpuinfo(io, info, true, "    ")
+function _show_cpuinfo(io::IO, info::Sys.CPUinfo, header::Bool=true, prefix::AbstractString="    ")
+    tck = SC_CLK_TCK
+    if header
+        println(io, info.model, ": ")
+        print(io, " "^length(prefix))
+        println(io, "    ", lpad("speed", 5), "    ", lpad("user", 9), "    ", lpad("nice", 9), "    ",
+                lpad("sys", 9), "    ", lpad("idle", 9), "    ", lpad("irq", 9))
+    end
+    print(io, prefix)
+    unit = tck > 0 ? " s  " : "    "
+    tc = max(tck, 1)
+    d(i, unit=unit) = lpad(string(round(Int64,i)), 9) * unit
+    print(io,
+          lpad(string(info.speed), 5), " MHz  ",
+          d(info.cpu_times!user / tc), d(info.cpu_times!nice / tc), d(info.cpu_times!sys / tc),
+          d(info.cpu_times!idle / tc), d(info.cpu_times!irq / tc, tck > 0 ? " s" : "  "))
+    if tck <= 0
+        print(io, "ticks")
+    end
+end
 
-function _cpu_summary(io::IO, cpu::Array{CPUinfo}, i, j)
+show(io::IO, info::CPUinfo) = _show_cpuinfo(io, info, true, "    ")
+
+function _cpu_summary(io::IO, cpu::AbstractVector{CPUinfo}, i, j)
     if j-i < 9
         header = true
         for x = i:j
             header || println(io)
-            Base._show_cpuinfo(io, cpu[x], header, "#$(x-i+1) ")
+            _show_cpuinfo(io, cpu[x], header, "#$(x-i+1) ")
             header = false
         end
     else
@@ -112,12 +160,12 @@ function _cpu_summary(io::IO, cpu::Array{CPUinfo}, i, j)
             summary.cpu_times!irq += cpu[x].cpu_times!irq
         end
         summary.speed = div(summary.speed,count)
-        Base._show_cpuinfo(io, summary, true, "#1-$(count) ")
+        _show_cpuinfo(io, summary, true, "#1-$(count) ")
     end
     println(io)
 end
 
-function cpu_summary(io::IO=STDOUT, cpu::Array{CPUinfo}=cpu_info())
+function cpu_summary(io::IO=stdout, cpu::AbstractVector{CPUinfo} = cpu_info())
     model = cpu[1].model
     first = 1
     for i = 2:length(cpu)
@@ -130,26 +178,36 @@ function cpu_summary(io::IO=STDOUT, cpu::Array{CPUinfo}=cpu_info())
 end
 
 function cpu_info()
-    UVcpus = Array{Ptr{UV_cpu_info_t}}(1)
-    count = Array{Int32}(1)
+    UVcpus = Ref{Ptr{UV_cpu_info_t}}()
+    count = Ref{Int32}()
     Base.uv_error("uv_cpu_info",ccall(:uv_cpu_info, Int32, (Ptr{Ptr{UV_cpu_info_t}}, Ptr{Int32}), UVcpus, count))
-    cpus = Array{CPUinfo}(count[1])
+    cpus = Vector{CPUinfo}(undef, count[])
     for i = 1:length(cpus)
-        cpus[i] = CPUinfo(unsafe_load(UVcpus[1], i))
+        cpus[i] = CPUinfo(unsafe_load(UVcpus[], i))
     end
-    ccall(:uv_free_cpu_info, Void, (Ptr{UV_cpu_info_t}, Int32), UVcpus[1], count[1])
+    ccall(:uv_free_cpu_info, Cvoid, (Ptr{UV_cpu_info_t}, Int32), UVcpus[], count[])
     return cpus
 end
 
+"""
+    Sys.uptime()
+
+Gets the current system uptime in seconds.
+"""
 function uptime()
-    uptime_ = Array{Float64}(1)
+    uptime_ = Ref{Float64}()
     Base.uv_error("uv_uptime",ccall(:uv_uptime, Int32, (Ptr{Float64},), uptime_))
-    return uptime_[1]
+    return uptime_[]
 end
 
+"""
+    Sys.loadavg()
+
+Get the load average. See: https://en.wikipedia.org/wiki/Load_(computing).
+"""
 function loadavg()
-    loadavg_ = Array{Float64}(3)
-    ccall(:uv_loadavg, Void, (Ptr{Float64},), loadavg_)
+    loadavg_ = Vector{Float64}(undef, 3)
+    ccall(:uv_loadavg, Cvoid, (Ptr{Float64},), loadavg_)
     return loadavg_
 end
 
@@ -159,10 +217,10 @@ total_memory() = ccall(:uv_get_total_memory, UInt64, ())
 """
     Sys.get_process_title()
 
-Get the process title. On some systems, will always return empty string. (not exported)
+Get the process title. On some systems, will always return an empty string.
 """
 function get_process_title()
-    buf = zeros(UInt8, 512)
+    buf = Vector{UInt8}(undef, 512)
     err = ccall(:uv_get_process_title, Cint, (Ptr{UInt8}, Cint), buf, 512)
     Base.uv_error("get_process_title", err)
     return unsafe_string(pointer(buf))
@@ -171,31 +229,96 @@ end
 """
     Sys.set_process_title(title::AbstractString)
 
-Set the process title. No-op on some operating systems. (not exported)
+Set the process title. No-op on some operating systems.
 """
 function set_process_title(title::AbstractString)
     err = ccall(:uv_set_process_title, Cint, (Cstring,), title)
     Base.uv_error("set_process_title", err)
 end
 
+"""
+    Sys.maxrss()
+
+Get the maximum resident set size utilized in bytes.
+See also:
+    - man page of getrusage(2) on Linux and FreeBSD.
+    - windows api `GetProcessMemoryInfo`
+"""
 maxrss() = ccall(:jl_maxrss, Csize_t, ())
 
-if is_windows()
+"""
+    Sys.isunix([os])
+
+Predicate for testing if the OS provides a Unix-like interface.
+See documentation in [Handling Operating System Variation](@ref).
+"""
+function isunix(os::Symbol)
+    if iswindows(os)
+        return false
+    elseif islinux(os) || isbsd(os)
+        return true
+    else
+        throw(ArgumentError("unknown operating system \"$os\""))
+    end
+end
+
+"""
+    Sys.islinux([os])
+
+Predicate for testing if the OS is a derivative of Linux.
+See documentation in [Handling Operating System Variation](@ref).
+"""
+islinux(os::Symbol) = (os == :Linux)
+
+"""
+    Sys.isbsd([os])
+
+Predicate for testing if the OS is a derivative of BSD.
+See documentation in [Handling Operating System Variation](@ref).
+
+!!! note
+    The Darwin kernel descends from BSD, which means that `Sys.isbsd()` is
+    `true` on macOS systems. To exclude macOS from a predicate, use
+    `Sys.isbsd() && !Sys.isapple()`.
+"""
+isbsd(os::Symbol) = (os == :FreeBSD || os == :OpenBSD || os == :NetBSD || os == :DragonFly || os == :Darwin || os == :Apple)
+
+"""
+    Sys.iswindows([os])
+
+Predicate for testing if the OS is a derivative of Microsoft Windows NT.
+See documentation in [Handling Operating System Variation](@ref).
+"""
+iswindows(os::Symbol) = (os == :Windows || os == :NT)
+
+"""
+    Sys.isapple([os])
+
+Predicate for testing if the OS is a derivative of Apple Macintosh OS X or Darwin.
+See documentation in [Handling Operating System Variation](@ref).
+"""
+isapple(os::Symbol) = (os == :Apple || os == :Darwin)
+
+for f in (:isunix, :islinux, :isbsd, :isapple, :iswindows)
+    @eval $f() = $(getfield(@__MODULE__, f)(KERNEL))
+end
+
+if iswindows()
     function windows_version()
         verinfo = ccall(:GetVersion, UInt32, ())
-        (Int(verinfo & 0xFF), Int((verinfo >> 8) & 0xFF))
+        VersionNumber(verinfo & 0xFF, (verinfo >> 8) & 0xFF, verinfo >> 16)
     end
 else
-    windows_version() = (0, 0)
+    windows_version() = v"0.0"
 end
 """
-    windows_version()
+    Sys.windows_version()
 
-Returns the version number for the Windows NT Kernel as a (major, minor) pair,
-or `(0, 0)` if this is not running on Windows.
+Returns the version number for the Windows NT Kernel as a `VersionNumber`,
+i.e. `v"major.minor.build"`, or `v"0.0.0"` if this is not running on Windows.
 """
 windows_version
 
-const WINDOWS_VISTA_VER = (6, 0)
+const WINDOWS_VISTA_VER = v"6.0"
 
 end # module Sys

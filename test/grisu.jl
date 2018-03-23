@@ -1,4 +1,4 @@
-# This file is a part of Julia. License is MIT: http://julialang.org/license
+# This file is a part of Julia. License is MIT: https://julialang.org/license
 
 using Base.Grisu
 
@@ -14,7 +14,7 @@ function trimrep(buffer)
 end
 
 const bufsize = 500
-buffer = Array{UInt8}(bufsize)
+buffer = Vector{UInt8}(undef, bufsize)
 fill!(buffer,0)
 bignums = [Grisu.Bignums.Bignum(),Grisu.Bignums.Bignum(),Grisu.Bignums.Bignum(),Grisu.Bignums.Bignum()]
 

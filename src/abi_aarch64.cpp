@@ -1,4 +1,4 @@
-// This file is a part of Julia. License is MIT: http://julialang.org/license
+// This file is a part of Julia. License is MIT: https://julialang.org/license
 
 //===----------------------------------------------------------------------===//
 //
@@ -58,6 +58,7 @@ Type *get_llvm_vectype(jl_datatype_t *dt) const
     return lltype;
 }
 
+#define jl_is_floattype(v)   jl_subtype(v,(jl_value_t*)jl_floatingpoint_type)
 Type *get_llvm_fptype(jl_datatype_t *dt) const
 {
     // Assume jl_is_datatype(dt) && !jl_is_abstracttype(dt)
@@ -317,7 +318,7 @@ Type *classify_arg(jl_datatype_t *dt, bool *fpreg, bool *onstack,
     // with weird size as a black box composite type.
     // The type can fit in 8 x 8 bytes since it is handled by
     // need_pass_by_ref otherwise.
-    // 0-size types (Void) won't be rewritten and that is what we want
+    // 0-size types (Nothing) won't be rewritten and that is what we want
     assert(jl_datatype_size(dt) <= 16); // Should be pass by reference otherwise
     *rewrite_len = (jl_datatype_size(dt) + 7) >> 3;
     // Rewrite to [n x Int64] where n is the **size in dword**

@@ -1,4 +1,4 @@
-# This file is a part of Julia. License is MIT: http://julialang.org/license
+# This file is a part of Julia. License is MIT: https://julialang.org/license
 
 # Operations with the file system (paths) ##
 
@@ -27,6 +27,8 @@ export
     unlink,
     walkdir
 
+import .Base.RefValue
+
 # get and set current directory
 
 """
@@ -35,8 +37,8 @@ export
 Get the current working directory.
 """
 function pwd()
-    b = Array{UInt8}(1024)
-    len = Ref{Csize_t}(length(b))
+    b = Vector{UInt8}(undef, 1024)
+    len = RefValue{Csize_t}(length(b))
     uv_error(:getcwd, ccall(:uv_cwd, Cint, (Ptr{UInt8}, Ptr{Csize_t}), b, len))
     String(b[1:len[]])
 end
@@ -51,7 +53,7 @@ function cd(dir::AbstractString)
 end
 cd() = cd(homedir())
 
-if is_windows()
+if Sys.iswindows()
     function cd(f::Function, dir::AbstractString)
         old = pwd()
         try
@@ -81,34 +83,44 @@ Temporarily changes the current working directory and applies function `f` befor
 """
 cd(f::Function) = cd(f, homedir())
 
+function checkmode(mode::Integer)
+    if !(0 <= mode <= 511)
+        throw(ArgumentError("Mode must be between 0 and 511 = 0o777"))
+    end
+    mode
+end
+
 """
-    mkdir(path::AbstractString, mode::Unsigned=0o777)
+    mkdir(path::AbstractString; mode::Unsigned = 0o777)
 
 Make a new directory with name `path` and permissions `mode`. `mode` defaults to `0o777`,
-modified by the current file creation mask.
+modified by the current file creation mask. This function never creates more than one
+directory. If the directory already exists, or some intermediate directories do not exist,
+this function throws an error. See [`mkpath`](@ref) for a function which creates all
+required intermediate directories.
 """
-function mkdir(path::AbstractString, mode::Unsigned=0o777)
-    @static if is_windows()
+function mkdir(path::AbstractString; mode::Integer = 0o777)
+    @static if Sys.iswindows()
         ret = ccall(:_wmkdir, Int32, (Cwstring,), path)
     else
-        ret = ccall(:mkdir, Int32, (Cstring, UInt32), path, mode)
+        ret = ccall(:mkdir, Int32, (Cstring, UInt32), path, checkmode(mode))
     end
     systemerror(:mkdir, ret != 0; extrainfo=path)
 end
 
 """
-    mkpath(path::AbstractString, mode::Unsigned=0o777)
+    mkpath(path::AbstractString; mode::Unsigned = 0o777)
 
 Create all directories in the given `path`, with permissions `mode`. `mode` defaults to
 `0o777`, modified by the current file creation mask.
 """
-function mkpath(path::AbstractString, mode::Unsigned=0o777)
+function mkpath(path::AbstractString; mode::Integer = 0o777)
     isdirpath(path) && (path = dirname(path))
     dir = dirname(path)
     (path == dir || isdir(path)) && return
-    mkpath(dir, mode)
+    mkpath(dir, mode = checkmode(mode))
     try
-        mkdir(path, mode)
+        mkdir(path, mode = mode)
     # If there is a problem with making the directory, but the directory
     # does in fact exist, then ignore the error. Else re-throw it.
     catch err
@@ -120,9 +132,6 @@ function mkpath(path::AbstractString, mode::Unsigned=0o777)
     end
 end
 
-mkdir(path::AbstractString, mode::Signed) = throw(ArgumentError("mode must be an unsigned integer; try 0o$mode"))
-mkpath(path::AbstractString, mode::Signed) = throw(ArgumentError("mode must be an unsigned integer; try 0o$mode"))
-
 """
     rm(path::AbstractString; force::Bool=false, recursive::Bool=false)
 
@@ -133,7 +142,7 @@ directory, then all contents are removed recursively.
 function rm(path::AbstractString; force::Bool=false, recursive::Bool=false)
     if islink(path) || !isdir(path)
         try
-            @static if is_windows()
+            @static if Sys.iswindows()
                 # is writable on windows actually means "is deletable"
                 if (filemode(path) & 0o222) == 0
                     chmod(path, 0o777)
@@ -152,7 +161,7 @@ function rm(path::AbstractString; force::Bool=false, recursive::Bool=false)
                 rm(joinpath(path, p), force=force, recursive=true)
             end
         end
-        @static if is_windows()
+        @static if Sys.iswindows()
             ret = ccall(:_wrmdir, Int32, (Cwstring,), path)
         else
             ret = ccall(:rmdir, Int32, (Cstring,), path)
@@ -164,9 +173,9 @@ end
 
 # The following use Unix command line facilites
 function checkfor_mv_cp_cptree(src::AbstractString, dst::AbstractString, txt::AbstractString;
-                                                          remove_destination::Bool=false)
+                                                          force::Bool=false)
     if ispath(dst)
-        if remove_destination
+        if force
             # Check for issue when: (src == dst) or when one is a link to the other
             # https://github.com/JuliaLang/julia/pull/11172#issuecomment-100391076
             if Base.samefile(src, dst)
@@ -179,23 +188,30 @@ function checkfor_mv_cp_cptree(src::AbstractString, dst::AbstractString, txt::Ab
             end
             rm(dst; recursive=true)
         else
-            throw(ArgumentError(string("'$dst' exists. `remove_destination=true` ",
+            throw(ArgumentError(string("'$dst' exists. `force=true` ",
                                        "is required to remove '$dst' before $(txt).")))
         end
     end
 end
 
-function cptree(src::AbstractString, dst::AbstractString; remove_destination::Bool=false,
-                                                             follow_symlinks::Bool=false)
+function cptree(src::AbstractString, dst::AbstractString; force::Bool=false,
+                                                          follow_symlinks::Bool=false,
+                                                          remove_destination::Union{Bool,Nothing}=nothing)
+    # TODO: Remove after 0.7
+    if remove_destination !== nothing
+        Base.depwarn("The `remove_destination` keyword argument is deprecated; use " *
+                     "`force` instead", :cptree)
+        force = remove_destination
+    end
     isdir(src) || throw(ArgumentError("'$src' is not a directory. Use `cp(src, dst)`"))
-    checkfor_mv_cp_cptree(src, dst, "copying"; remove_destination=remove_destination)
+    checkfor_mv_cp_cptree(src, dst, "copying"; force=force)
     mkdir(dst)
     for name in readdir(src)
         srcname = joinpath(src, name)
         if !follow_symlinks && islink(srcname)
             symlink(readlink(srcname), joinpath(dst, name))
         elseif isdir(srcname)
-            cptree(srcname, joinpath(dst, name); remove_destination=remove_destination,
+            cptree(srcname, joinpath(dst, name); force=force,
                                                  follow_symlinks=follow_symlinks)
         else
             sendfile(srcname, joinpath(dst, name))
@@ -204,35 +220,49 @@ function cptree(src::AbstractString, dst::AbstractString; remove_destination::Bo
 end
 
 """
-    cp(src::AbstractString, dst::AbstractString; remove_destination::Bool=false, follow_symlinks::Bool=false)
+    cp(src::AbstractString, dst::AbstractString; force::Bool=false, follow_symlinks::Bool=false)
 
 Copy the file, link, or directory from `src` to `dest`.
-`remove_destination=true` will first remove an existing `dst`.
+`force=true` will first remove an existing `dst`.
 
 If `follow_symlinks=false`, and `src` is a symbolic link, `dst` will be created as a
 symbolic link. If `follow_symlinks=true` and `src` is a symbolic link, `dst` will be a copy
 of the file or directory `src` refers to.
 """
-function cp(src::AbstractString, dst::AbstractString; remove_destination::Bool=false,
-                                                         follow_symlinks::Bool=false)
-    checkfor_mv_cp_cptree(src, dst, "copying"; remove_destination=remove_destination)
+function cp(src::AbstractString, dst::AbstractString; force::Bool=false,
+                                                      follow_symlinks::Bool=false,
+                                                      remove_destination::Union{Bool,Nothing}=nothing)
+    # TODO: Remove after 0.7
+    if remove_destination !== nothing
+        Base.depwarn("The `remove_destination` keyword argument is deprecated; use " *
+                     "`force` instead", :cp)
+        force = remove_destination
+    end
+    checkfor_mv_cp_cptree(src, dst, "copying"; force=force)
     if !follow_symlinks && islink(src)
         symlink(readlink(src), dst)
     elseif isdir(src)
-        cptree(src, dst; remove_destination=remove_destination, follow_symlinks=follow_symlinks)
+        cptree(src, dst; force=force, follow_symlinks=follow_symlinks)
     else
         sendfile(src, dst)
     end
 end
 
 """
-    mv(src::AbstractString, dst::AbstractString; remove_destination::Bool=false)
+    mv(src::AbstractString, dst::AbstractString; force::Bool=false)
 
 Move the file, link, or directory from `src` to `dst`.
-`remove_destination=true` will first remove an existing `dst`.
+`force=true` will first remove an existing `dst`.
 """
-function mv(src::AbstractString, dst::AbstractString; remove_destination::Bool=false)
-    checkfor_mv_cp_cptree(src, dst, "moving"; remove_destination=remove_destination)
+function mv(src::AbstractString, dst::AbstractString; force::Bool=false,
+                                                      remove_destination::Union{Bool,Nothing}=nothing)
+    # TODO: Remove after 0.7
+    if remove_destination !== nothing
+        Base.depwarn("The `remove_destination` keyword argument is deprecated; use " *
+                     "`force` instead", :mv)
+        force = remove_destination
+    end
+    checkfor_mv_cp_cptree(src, dst, "moving"; force=force)
     rename(src, dst)
 end
 
@@ -251,10 +281,10 @@ function touch(path::AbstractString)
     end
 end
 
-if is_windows()
+if Sys.iswindows()
 
 function tempdir()
-    temppath = Array{UInt16}(32767)
+    temppath = Vector{UInt16}(undef, 32767)
     lentemppath = ccall(:GetTempPathW,stdcall,UInt32,(UInt32,Ptr{UInt16}),length(temppath),temppath)
     if lentemppath >= length(temppath) || lentemppath == 0
         error("GetTempPath failed: $(Libc.FormatMessage())")
@@ -262,13 +292,13 @@ function tempdir()
     resize!(temppath,lentemppath)
     return transcode(String, temppath)
 end
-tempname(uunique::UInt32=UInt32(0)) = tempname(tempdir(), uunique)
+
 const temp_prefix = cwstring("jl_")
-function tempname(temppath::AbstractString,uunique::UInt32)
+function _win_tempname(temppath::AbstractString, uunique::UInt32)
     tempp = cwstring(temppath)
-    tname = Array{UInt16}(32767)
+    tname = Vector{UInt16}(undef, 32767)
     uunique = ccall(:GetTempFileNameW,stdcall,UInt32,(Ptr{UInt16},Ptr{UInt16},UInt32,Ptr{UInt16}), tempp,temp_prefix,uunique,tname)
-    lentname = findfirst(tname,0)-1
+    lentname = coalesce(findfirst(iszero,tname), 0)-1
     if uunique == 0 || lentname <= 0
         error("GetTempFileName failed: $(Libc.FormatMessage())")
     end
@@ -277,22 +307,37 @@ function tempname(temppath::AbstractString,uunique::UInt32)
 end
 
 function mktemp(parent=tempdir())
-    filename = tempname(parent, UInt32(0))
+    filename = _win_tempname(parent, UInt32(0))
     return (filename, Base.open(filename, "r+"))
 end
 
 function mktempdir(parent=tempdir())
-    seed::UInt32 = rand(UInt32)
+    seed::UInt32 = Libc.rand(UInt32)
     while true
         if (seed & typemax(UInt16)) == 0
             seed += 1
         end
-        filename = tempname(parent, seed)
+        filename = _win_tempname(parent, seed)
         ret = ccall(:_wmkdir, Int32, (Ptr{UInt16},), cwstring(filename))
         if ret == 0
             return filename
         end
         systemerror(:mktempdir, Libc.errno()!=Libc.EEXIST)
+        seed += 1
+    end
+end
+
+function tempname()
+    parent = tempdir()
+    seed::UInt32 = rand(UInt32)
+    while true
+        if (seed & typemax(UInt16)) == 0
+            seed += 1
+        end
+        filename = _win_tempname(parent, seed)
+        if !ispath(filename)
+            return filename
+        end
         seed += 1
     end
 end
@@ -340,14 +385,21 @@ tempdir()
 """
     tempname()
 
-Generate a unique temporary file path.
+Generate a temporary file path. This function only returns a path; no file is
+created. The path is likely to be unique, but this cannot be guaranteed.
+
+!!! warning
+
+    This can lead to race conditions if another process obtains the same
+    file name and creates the file before you are able to.
+    Using [`mktemp()`](@ref) is recommended instead.
 """
 tempname()
 
 """
     mktemp(parent=tempdir())
 
-Returns `(path, io)`, where `path` is the path of a new temporary file in `parent` and `io`
+Return `(path, io)`, where `path` is the path of a new temporary file in `parent` and `io`
 is an open file object for this path.
 """
 mktemp(parent)
@@ -356,6 +408,7 @@ mktemp(parent)
     mktempdir(parent=tempdir())
 
 Create a temporary directory in the `parent` directory and return its path.
+If `parent` does not exist, throw an error.
 """
 mktempdir(parent)
 
@@ -363,7 +416,8 @@ mktempdir(parent)
 """
     mktemp(f::Function, parent=tempdir())
 
-Apply the function `f` to the result of `mktemp(parent)` and remove the temporary file upon completion.
+Apply the function `f` to the result of [`mktemp(parent)`](@ref) and remove the
+temporary file upon completion.
 """
 function mktemp(fn::Function, parent=tempdir())
     (tmp_path, tmp_io) = mktemp(parent)
@@ -378,8 +432,8 @@ end
 """
     mktempdir(f::Function, parent=tempdir())
 
-Apply the function `f` to the result of `mktempdir(parent)` and remove the temporary
-directory upon completion.
+Apply the function `f` to the result of [`mktempdir(parent)`](@ref) and remove the
+temporary directory upon completion.
 """
 function mktempdir(fn::Function, parent=tempdir())
     tmpdir = mktempdir(parent)
@@ -398,14 +452,14 @@ end
 """
     readdir(dir::AbstractString=".") -> Vector{String}
 
-Returns the files and directories in the directory `dir` (or the current working directory if not given).
+Return the files and directories in the directory `dir` (or the current working directory if not given).
 """
 function readdir(path::AbstractString)
     # Allocate space for uv_fs_t struct
     uv_readdir_req = zeros(UInt8, ccall(:jl_sizeof_uv_fs_t, Int32, ()))
 
     # defined in sys.c, to call uv_fs_readdir, which sets errno on error.
-    err = ccall(:uv_fs_scandir, Int32, (Ptr{Void}, Ptr{UInt8}, Cstring, Cint, Ptr{Void}),
+    err = ccall(:uv_fs_scandir, Int32, (Ptr{Cvoid}, Ptr{UInt8}, Cstring, Cint, Ptr{Cvoid}),
                 eventloop(), uv_readdir_req, path, 0, C_NULL)
     err < 0 && throw(SystemError("unable to read directory $path", -err))
     #uv_error("unable to read directory $path", err)
@@ -413,12 +467,12 @@ function readdir(path::AbstractString)
     # iterate the listing into entries
     entries = String[]
     ent = Ref{uv_dirent_t}()
-    while Base.UV_EOF != ccall(:uv_fs_scandir_next, Cint, (Ptr{Void}, Ptr{uv_dirent_t}), uv_readdir_req, ent)
+    while Base.UV_EOF != ccall(:uv_fs_scandir_next, Cint, (Ptr{Cvoid}, Ptr{uv_dirent_t}), uv_readdir_req, ent)
         push!(entries, unsafe_string(ent[].name))
     end
 
     # Clean up the request string
-    ccall(:jl_uv_fs_req_cleanup, Void, (Ptr{UInt8},), uv_readdir_req)
+    ccall(:jl_uv_fs_req_cleanup, Cvoid, (Ptr{UInt8},), uv_readdir_req)
 
     return entries
 end
@@ -428,7 +482,7 @@ readdir() = readdir(".")
 """
     walkdir(dir; topdown=true, follow_symlinks=false, onerror=throw)
 
-The `walkdir` method returns an iterator that walks the directory tree of a directory.
+Return an iterator that walks the directory tree of a directory.
 The iterator returns a tuple containing `(rootpath, dirs, files)`.
 The directory tree can be traversed top-down or bottom-up.
 If `walkdir` encounters a [`SystemError`](@ref)
@@ -460,8 +514,8 @@ function walkdir(root; topdown=true, follow_symlinks=false, onerror=throw)
         close(chnl)
         return chnl
     end
-    dirs = Array{eltype(content)}(0)
-    files = Array{eltype(content)}(0)
+    dirs = Vector{eltype(content)}()
+    files = Vector{eltype(content)}()
     for name in content
         if isdir(joinpath(root, name))
             push!(dirs, name)
@@ -501,16 +555,16 @@ function rename(src::AbstractString, dst::AbstractString)
     err = ccall(:jl_fs_rename, Int32, (Cstring, Cstring), src, dst)
     # on error, default to cp && rm
     if err < 0
-        # remove_destination: is already done in the mv function
-        cp(src, dst; remove_destination=false, follow_symlinks=false)
+        # force: is already done in the mv function
+        cp(src, dst; force=false, follow_symlinks=false)
         rm(src; recursive=true)
     end
     nothing
 end
 
 function sendfile(src::AbstractString, dst::AbstractString)
-    local src_open = false
-    local dst_open = false
+    src_open = false
+    dst_open = false
     local src_file, dst_file
     try
         src_file = open(src, JL_O_RDONLY)
@@ -531,7 +585,7 @@ function sendfile(src::AbstractString, dst::AbstractString)
     end
 end
 
-if is_windows()
+if Sys.iswindows()
     const UV_FS_SYMLINK_JUNCTION = 0x0002
 end
 
@@ -545,22 +599,22 @@ Creates a symbolic link to `target` with the name `link`.
     soft symbolic links, such as Windows XP.
 """
 function symlink(p::AbstractString, np::AbstractString)
-    @static if is_windows()
+    @static if Sys.iswindows()
         if Sys.windows_version() < Sys.WINDOWS_VISTA_VER
             error("Windows XP does not support soft symlinks")
         end
     end
     flags = 0
-    @static if is_windows()
+    @static if Sys.iswindows()
         if isdir(p)
             flags |= UV_FS_SYMLINK_JUNCTION
             p = abspath(p)
         end
     end
     err = ccall(:jl_fs_symlink, Int32, (Cstring, Cstring, Cint), p, np, flags)
-    @static if is_windows()
+    @static if Sys.iswindows()
         if err < 0 && !isdir(p)
-            Base.warn_once("Note: on Windows, creating file symlinks requires Administrator privileges.")
+            @warn "On Windows, creating file symlinks requires Administrator privileges" maxlog=1 _group=:file
         end
     end
     uv_error("symlink",err)
@@ -569,21 +623,21 @@ end
 """
     readlink(path::AbstractString) -> AbstractString
 
-Returns the target location a symbolic link `path` points to.
+Return the target location a symbolic link `path` points to.
 """
 function readlink(path::AbstractString)
     req = Libc.malloc(_sizeof_uv_fs)
     try
         ret = ccall(:uv_fs_readlink, Int32,
-            (Ptr{Void}, Ptr{Void}, Cstring, Ptr{Void}),
+            (Ptr{Cvoid}, Ptr{Cvoid}, Cstring, Ptr{Cvoid}),
             eventloop(), req, path, C_NULL)
         if ret < 0
-            ccall(:uv_fs_req_cleanup, Void, (Ptr{Void}, ), req)
+            ccall(:uv_fs_req_cleanup, Cvoid, (Ptr{Cvoid},), req)
             uv_error("readlink", ret)
-            assert(false)
+            @assert false
         end
-        tgt = unsafe_string(ccall(:jl_uv_fs_t_ptr, Ptr{Cchar}, (Ptr{Void}, ), req))
-        ccall(:uv_fs_req_cleanup, Void, (Ptr{Void}, ), req)
+        tgt = unsafe_string(ccall(:jl_uv_fs_t_ptr, Ptr{Cchar}, (Ptr{Cvoid},), req))
+        ccall(:uv_fs_req_cleanup, Cvoid, (Ptr{Cvoid},), req)
         return tgt
     finally
         Libc.free(req)

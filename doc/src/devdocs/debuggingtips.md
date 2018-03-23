@@ -11,11 +11,11 @@ Within `gdb`, any `jl_value_t*` object `obj` can be displayed using
 The object will be displayed in the `julia` session, not in the gdb session. This is a useful
 way to discover the types and values of objects being manipulated by Julia's C code.
 
-Similarly, if you're debugging some of Julia's internals (e.g., `inference.jl`), you can print
+Similarly, if you're debugging some of Julia's internals (e.g., `compiler.jl`), you can print
 `obj` using
 
 ```julia
-ccall(:jl_, Void, (Any,), obj)
+ccall(:jl_, Cvoid, (Any,), obj)
 ```
 
 This is a good way to circumvent problems that arise from the order in which julia's output streams
@@ -26,7 +26,7 @@ Julia's flisp interpreter uses `value_t` objects; these can be displayed with `c
 ## Useful Julia variables for Inspecting
 
 While the addresses of many variables, like singletons, can be be useful to print for many failures,
-there are a number of additional variables (see julia.h for a complete list) that are even more
+there are a number of additional variables (see `julia.h` for a complete list) that are even more
 useful.
 
   * (when in `jl_apply_generic`) `mfunc` and `jl_uncompress_ast(mfunc->def, mfunc->code)` :: for
@@ -64,7 +64,7 @@ In your `gdb` session, set a breakpoint in `jl_breakpoint` like so:
 Then within your Julia code, insert a call to `jl_breakpoint` by adding
 
 ```julia
-ccall(:jl_breakpoint, Void, (Any,), obj)
+ccall(:jl_breakpoint, Cvoid, (Any,), obj)
 ```
 
 where `obj` can be any variable or tuple you want to be accessible in the breakpoint.
@@ -234,9 +234,9 @@ process)
 
 ## Mozilla's Record and Replay Framework (rr)
 
-Julia now works out of the box with [rr,](http://rr-project.org/) the lightweight recording and
+Julia now works out of the box with [rr](http://rr-project.org/), the lightweight recording and
 deterministic debugging framework from Mozilla. This allows you to replay the trace of an execution
 deterministically.  The replayed execution's address spaces, register contents, syscall data etc
 are exactly the same in every run.
 
-A recent version of `rr` (3.1.0 or higher) is required.
+A recent version of rr (3.1.0 or higher) is required.

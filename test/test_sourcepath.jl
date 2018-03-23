@@ -1,4 +1,4 @@
-# This file is a part of Julia. License is MIT: http://julialang.org/license
+# This file is a part of Julia. License is MIT: https://julialang.org/license
 
 # source path in tasks
 path = Base.source_path()::String # this variable is leaked to the source script
@@ -12,6 +12,6 @@ end == path
 @test let ct = current_task(), t = @task Base.source_path()
     schedule(ct)
     yieldto(t)
-    wait(t)
+    fetch(t)
 end == path
 @test isabspath(@__FILE__)

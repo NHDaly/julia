@@ -1,8 +1,6 @@
-# This file is a part of Julia. License is MIT: http://julialang.org/license
+# This file is a part of Julia. License is MIT: https://julialang.org/license
 
 module Grisu
-
-importall ..Base.Operators
 
 export print_shortest
 export DIGITS, grisu
@@ -11,14 +9,14 @@ const SHORTEST = 1
 const FIXED = 2
 const PRECISION = 3
 
-const DIGITS = Array{UInt8}(309+17)
+const DIGITS = Vector{UInt8}(undef, 309+17)
 
-include("grisu/float.jl")
-include("grisu/fastshortest.jl")
-include("grisu/fastprecision.jl")
-include("grisu/fastfixed.jl")
-include("grisu/bignums.jl")
-include("grisu/bignum.jl")
+include(joinpath("grisu", "float.jl"))
+include(joinpath("grisu", "fastshortest.jl"))
+include(joinpath("grisu", "fastprecision.jl"))
+include(joinpath("grisu", "fastfixed.jl"))
+include(joinpath("grisu", "bignums.jl"))
+include(joinpath("grisu", "bignum.jl"))
 
 const BIGNUMS = [Bignums.Bignum(),Bignums.Bignum(),Bignums.Bignum(),Bignums.Bignum()]
 
@@ -60,13 +58,13 @@ infstr(x::Float32) = "Inf32"
 infstr(x::Float16) = "Inf16"
 
 function _show(io::IO, x::AbstractFloat, mode, n::Int, typed, compact)
-    isnan(x) && return write(io, typed ? nanstr(x) : "NaN")
+    isnan(x) && return print(io, typed ? nanstr(x) : "NaN")
     if isinf(x)
-        signbit(x) && write(io,'-')
-        write(io, typed ? infstr(x) : "Inf")
+        signbit(x) && print(io,'-')
+        print(io, typed ? infstr(x) : "Inf")
         return
     end
-    typed && isa(x,Float16) && write(io, "Float16(")
+    typed && isa(x,Float16) && print(io, "Float16(")
     (len,pt,neg),buffer = grisu(x,mode,n),DIGITS
     pdigits = pointer(buffer)
     if mode == PRECISION
@@ -74,27 +72,28 @@ function _show(io::IO, x::AbstractFloat, mode, n::Int, typed, compact)
             len -= 1
         end
     end
-    neg && write(io,'-')
+    neg && print(io,'-')
     exp_form = pt <= -4 || pt > 6
     exp_form = exp_form || (pt >= len && abs(mod(x + 0.05, 10^(pt - len)) - 0.05) > 0.05) # see issue #6608
     if exp_form # .00001 to 100000.
         # => #.#######e###
+        # assumes ASCII/UTF8 encoding of digits is okay for out:
         unsafe_write(io, pdigits, 1)
-        write(io, '.')
+        print(io, '.')
         if len > 1
             unsafe_write(io, pdigits+1, len-1)
         else
-            write(io, '0')
+            print(io, '0')
         end
-        write(io, (typed && isa(x,Float32)) ? 'f' : 'e')
-        write(io, dec(pt-1))
-        typed && isa(x,Float16) && write(io, ")")
+        print(io, (typed && isa(x,Float32)) ? 'f' : 'e')
+        print(io, string(pt - 1))
+        typed && isa(x,Float16) && print(io, ")")
         return
     elseif pt <= 0
         # => 0.00########
-        write(io, "0.")
+        print(io, "0.")
         while pt < 0
-            write(io, '0')
+            print(io, '0')
             pt += 1
         end
         unsafe_write(io, pdigits, len)
@@ -102,33 +101,39 @@ function _show(io::IO, x::AbstractFloat, mode, n::Int, typed, compact)
         # => ########00.0
         unsafe_write(io, pdigits, len)
         while pt > len
-            write(io, '0')
+            print(io, '0')
             len += 1
         end
-        write(io, ".0")
+        print(io, ".0")
     else # => ####.####
         unsafe_write(io, pdigits, pt)
-        write(io, '.')
+        print(io, '.')
         unsafe_write(io, pdigits+pt, len-pt)
     end
-    typed && !compact && isa(x,Float32) && write(io, "f0")
-    typed && isa(x,Float16) && write(io, ")")
+    typed && !compact && isa(x,Float32) && print(io, "f0")
+    typed && isa(x,Float16) && print(io, ")")
     nothing
 end
 
 function Base.show(io::IO, x::Union{Float64,Float32})
     if get(io, :compact, false)
-        _show(io, x, PRECISION, 6, true, true)
+        _show(io, x, PRECISION, 6, x isa Float64, true)
     else
-        _show(io, x, SHORTEST, 0, true, false)
+        _show(io, x, SHORTEST, 0, get(io, :typeinfo, Any) !== typeof(x), false)
     end
 end
 
 function Base.show(io::IO, x::Float16)
-    if get(io, :compact, false)
+    hastypeinfo = Float16 === get(io, :typeinfo, Any)
+    # if hastypeinfo, the printing would be more compact using `SHORTEST`
+    # while still retaining all the information
+    # BUT: we want to print all digits in `show`, not in display, so we rely
+    # on the :compact property to make the decision
+    # (cf. https://github.com/JuliaLang/julia/pull/24651#issuecomment-345535687)
+    if get(io, :compact, false) && !hastypeinfo
         _show(io, x, PRECISION, 5, false, true)
     else
-        _show(io, x, SHORTEST, 0, true, false)
+        _show(io, x, SHORTEST, 0, !hastypeinfo, false)
     end
 end
 
@@ -145,9 +150,9 @@ Base.print(io::IO, x::Float16) = _show(io, x, SHORTEST, 0, false, false)
 #   0 < pt              ########e###        len+k+1
 
 function _print_shortest(io::IO, x::AbstractFloat, dot::Bool, mode, n::Int)
-    isnan(x) && return write(io, "NaN")
-    x < 0 && write(io,'-')
-    isinf(x) && return write(io, "Inf")
+    isnan(x) && return print(io, "NaN")
+    x < 0 && print(io,'-')
+    isinf(x) && return print(io, "Inf")
     (len,pt,neg),buffer = grisu(x,mode,n),DIGITS
     pdigits = pointer(buffer)
     e = pt-len
@@ -155,14 +160,14 @@ function _print_shortest(io::IO, x::AbstractFloat, dot::Bool, mode, n::Int)
     if -pt > k+1 || e+dot > k+1
         # => ########e###
         unsafe_write(io, pdigits+0, len)
-        write(io, 'e')
-        write(io, dec(e))
+        print(io, 'e')
+        print(io, string(e))
         return
     elseif pt <= 0
         # => 0.000########
-        write(io, "0.")
+        print(io, "0.")
         while pt < 0
-            write(io, '0')
+            print(io, '0')
             pt += 1
         end
         unsafe_write(io, pdigits+0, len)
@@ -170,20 +175,26 @@ function _print_shortest(io::IO, x::AbstractFloat, dot::Bool, mode, n::Int)
         # => ########000.
         unsafe_write(io, pdigits+0, len)
         while e > 0
-            write(io, '0')
+            print(io, '0')
             e -= 1
         end
         if dot
-            write(io, '.')
+            print(io, '.')
         end
     else # => ####.####
         unsafe_write(io, pdigits+0, pt)
-        write(io, '.')
+        print(io, '.')
         unsafe_write(io, pdigits+pt, len-pt)
     end
     nothing
 end
 
+"""
+    print_shortest(io::IO, x)
+
+Print the shortest possible representation, with the minimum number of consecutive non-zero
+digits, of number `x`, ensuring that it would parse to the exact same number.
+"""
 print_shortest(io::IO, x::AbstractFloat, dot::Bool) = _print_shortest(io, x, dot, SHORTEST, 0)
 print_shortest(io::IO, x::Union{AbstractFloat,Integer}) = print_shortest(io, float(x), false)
 

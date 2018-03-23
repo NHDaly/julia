@@ -1,6 +1,6 @@
-# This file is a part of Julia. License is MIT: http://julialang.org/license
+# This file is a part of Julia. License is MIT: https://julialang.org/license
 
-using Base.Test
+using Test
 
 """
 Helper to walk the AST and call a function on every node.
@@ -25,10 +25,10 @@ function test_inlined_symbols(func, argtypes)
     ast.args = src.code
     ast.typ = rettype
     walk(ast) do e
-        if isa(e, Slot)
+        if isa(e, Core.Slot)
             @test 1 <= e.id <= nl
         end
-        if isa(e, NewvarNode)
+        if isa(e, Core.NewvarNode)
             @test 1 <= e.slot.id <= nl
         end
     end
@@ -67,7 +67,7 @@ function bar12620()
         foo_inl(i==1)
     end
 end
-@test_throws UndefVarError bar12620()
+@test_throws UndefVarError(:y) bar12620()
 
 # issue #16165
 @inline f16165(x) = (x = UInt(x) + 1)
@@ -87,11 +87,11 @@ end
 @inline Base.getindex(v::s21074, i::Integer) = v.x[i]
 @eval f21074() = $(s21074((1,2))).x[1]
 let (src, _) = code_typed(f21074, ())[1]
-    @test src.code[1] == Expr(:return, 1)
+    @test src.code[end] == Expr(:return, 1)
 end
 @eval g21074() = $(s21074((1,2)))[1]
 let (src, _) = code_typed(g21074, ())[1]
-    @test src.code[1] == Expr(:return, 1)
+    @test src.code[end] == Expr(:return, 1)
 end
 
 # issue #21311
@@ -110,4 +110,16 @@ function read21311()
 end
 let a = read21311()
     @test a[] == 1
+end
+
+@testset "issue #19122: [no]inline of short func. def. with return type annotation" begin
+    exf19122 = @macroexpand(@inline f19122()::Bool = true)
+    exg19122 = @macroexpand(@noinline g19122()::Bool = true)
+    @test exf19122.args[2].args[1].args[1] == :inline
+    @test exg19122.args[2].args[1].args[1] == :noinline
+
+    @inline f19122()::Bool = true
+    @noinline g19122()::Bool = true
+    @test f19122()
+    @test g19122()
 end

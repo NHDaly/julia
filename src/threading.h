@@ -1,4 +1,4 @@
-// This file is a part of Julia. License is MIT: http://julialang.org/license
+// This file is a part of Julia. License is MIT: https://julialang.org/license
 
 #ifndef THREADING_H
 #define THREADING_H
@@ -11,7 +11,7 @@ extern "C" {
 #include "threadgroup.h"
 #include "julia.h"
 
-#define PROFILE_JL_THREADING            1
+#define PROFILE_JL_THREADING            0
 
 // thread ID
 extern jl_ptls_t *jl_all_tls_states;
