@@ -78,7 +78,7 @@ function open(path::AbstractString, flags::Integer, mode::Integer=0)
                     eventloop(), req, path, flags, mode, C_NULL)
         handle = ccall(:jl_uv_fs_result, Cssize_t, (Ptr{Cvoid},), req)
         ccall(:uv_fs_req_cleanup, Cvoid, (Ptr{Cvoid},), req)
-        uv_error("open", ret)
+        uv_error("open($path, $flags, $mode)", ret)
     finally # conversion to Cstring could cause an exception
         Libc.free(req)
     end
