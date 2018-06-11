@@ -605,21 +605,36 @@ restart_switch:
 
 JL_DLLEXPORT void jl_set_ARGS(int argc, char **argv)
 {
+    // Set Core.ARGS to argv.
     if (jl_core_module != NULL) {
-        jl_array_t *args = (jl_array_t*)jl_get_global(jl_core_module, jl_symbol("ARGS"));
-        if (args == NULL) {
-            args = jl_alloc_vec_any(0);
-            JL_GC_PUSH1(&args);
-            jl_set_const(jl_core_module, jl_symbol("ARGS"), (jl_value_t*)args);
-            JL_GC_POP();
-        }
-        assert(jl_array_len(args) == 0);
-        jl_array_grow_end(args, argc);
-        int i;
-        for (i=0; i < argc; i++) {
-            jl_value_t *s = (jl_value_t*)jl_cstr_to_string(argv[i]);
-            jl_arrayset(args, s, i);
-        }
+        jl_array_t *core_args = (jl_array_t*)jl_get_global(jl_core_module, jl_symbol("ARGS"));
+        _jl_set_ARGS_as_symbol(argc, argv, core_args);
+    }
+
+    // Set Base.ARGS to `String[ unsafe_string(argv[i]) for i in 1:argc ]`
+    if (jl_base_module != NULL) {
+        jl_array_t *base_args = (jl_array_t*)jl_get_global(jl_base_module, jl_symbol("ARGS"));
+        _jl_set_ARGS_as_symbol(argc-1, argv+1, base_args);
+    }
+
+    // Set PROGRAM_FILE to argv[0] if present.
+    jl_set_global(jl_base_module, jl_symbol("PROGRAM_FILE"),
+         (jl_value_t*)jl_cstr_to_string(argc > 0 ? argv[0] : ""));
+}
+void _jl_set_ARGS_in_array(int argc, char **argv, jl_array_t *args)
+{
+    if (args == NULL) {
+        args = jl_alloc_vec_any(0);
+        JL_GC_PUSH1(&args);
+        jl_set_const(jl_core_module, jl_symbol("ARGS"), (jl_value_t*)args);
+        JL_GC_POP();
+    }
+    assert(jl_array_len(args) == 0);
+    jl_array_grow_end(args, argc);
+    int i;
+    for (i=0; i < argc; i++) {
+        jl_value_t *s = (jl_value_t*)jl_cstr_to_string(argv[i]);
+        jl_arrayset(args, s, i);
     }
 }
 

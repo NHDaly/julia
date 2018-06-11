@@ -225,9 +225,6 @@ function exec_options(opts)
         end
     end
 
-    # remove filename from ARGS
-    global PROGRAM_FILE = arg_is_program ? popfirst!(ARGS) : ""
-
     # Load Distributed module only if any of the Distributed options have been specified.
     distributed_mode = (opts.worker == 1) || (opts.nprocs > 0) || (opts.machine_file != C_NULL)
     if distributed_mode
@@ -420,8 +417,6 @@ Use [`Base.include`](@ref) to evaluate a file into another module.
 MainInclude.include
 
 function _start()
-    empty!(ARGS)
-    append!(ARGS, Core.ARGS)
     @eval Main import Base.MainInclude: eval, include
     try
         exec_options(JLOptions())
