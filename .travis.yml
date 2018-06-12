@@ -49,6 +49,7 @@ branches:
     - master
     - /^release-.*/
     - /^v\d+\.\d+\.\d+$/
+    - ApplicationBuilder/julia.customBuild  # (NHDALY): My custom branch.
 notifications:
     email: false
     irc:
