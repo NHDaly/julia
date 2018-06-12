@@ -102,6 +102,7 @@ script:
         done;
       fi
     # (NHDALY): This creates the release.
+    - echo "TEST -- HI NATHAN!" >> /tmp/julia/test-nathan.txt
     - zip -r release.zip /tmp/julia
 # uncomment the following if failures are suspected to be due to the out-of-memory killer
 #    - dmesg
