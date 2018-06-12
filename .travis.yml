@@ -3,39 +3,6 @@ sudo: required
 dist: trusty
 matrix:
   include:
-    - os: linux
-      env: ARCH="i686"
-      compiler: "g++-5 -m32"
-      addons:
-        apt:
-          sources:
-            - ubuntu-toolchain-r-test
-          packages:
-            - libssl1.0.0
-            - bar
-            - time
-            - binutils
-            - gcc-5
-            - g++-5
-            - gcc-5-multilib
-            - g++-5-multilib
-            - make:i386
-            - libssl-dev:i386
-            - gfortran-5
-            - gfortran-5-multilib
-    - os: linux
-      env: ARCH="x86_64"
-      compiler: "g++-5 -m64"
-      addons:
-        apt:
-          sources:
-            - ubuntu-toolchain-r-test
-          packages:
-            - libssl1.0.0
-            - bar
-            - time
-            - g++-5
-            - gfortran-5
     - os: osx
       env: ARCH="x86_64"
       osx_image: xcode8
@@ -52,15 +19,6 @@ branches:
     - ApplicationBuilder/julia.customBuild  # (NHDALY): My custom branch.
 notifications:
     email: false
-    irc:
-        channels:
-            - "chat.freenode.net#julia-notifications"
-        on_success: change
-        on_failure: always
-    webhooks:
-        urls:
-          - http://status.julialang.org/put/travis
-          - http://julia.mit.edu:8000/travis-hook
 before_install:
     - make check-whitespace
     - if [ `uname` = "Linux" ]; then
@@ -107,6 +65,7 @@ before_install:
         export JULIA_CPU_CORES=2;
         export JULIA_TEST_MAXRSS_MB=600;
         TESTSTORUN="all --skip linalg/triangular subarray"; fi # TODO: re enable these if possible without timing out
+    - if [ `uname` = "Darwin" ]; then echo "USE_SYSTEM_LIBUNWIND=1" >> Make.user; fi  # (NHDALY): This was added to fix the build.
     - wget http://http.debian.net/debian/pool/main/m/moreutils/moreutils_0.62.orig.tar.xz
     - tar -xJvf moreutils_0.62.orig.tar.xz && mv moreutils-0.62 moreutils
 script:
@@ -160,7 +119,17 @@ script:
     # restore initial state and prepare for travis caching
     - mv julia2 julia &&
         rm -f julia/deps/scratch/libgit2-*/CMakeFiles/CMakeOutput.log
+    # (NHDALY): This creates the release.
+    - if [ `uname` = "Darwin" ]; then
+        zip -r release.zip /tmp/julia; fi
 # uncomment the following if failures are suspected to be due to the out-of-memory killer
 #    - dmesg
-after_success:
-    - cd julia && make -C doc deploy
+# after_success:
+#     - cd julia && make -C doc deploy
+
+-deploy:
+  provider: releases
+  api_key:
+    secure: rIj35LAY3Db5+EDGqX1BIe6SfjeioCyMTT4KD9E+Pk14ScwrSJBA2DHpmWE/jjbjuyoOLRJC0IS4mfWyfy5e5Lh2JKBo0Ov6khSw+RZ+QcQcv6fe5LooqOX3hCsJToKSM/iY2ULMsiKBWEJB7GRewR2W570j6SEkQ6HDbxaKKy2z53e4ZmLLUbWE1HUx0VfWVtCzIr4DGCArNES2KDWhqotH7hGMgr2JhYgUnhK1YUNjEjO3URrNOU7MbQBN3rOuXBDb9PB6v5yGgHHUZVuxDObHZ+qe1nafZYXbSTUcy6i5t5ZTWZoxuTL7Tnn5dwhbfpoGOiMhpkHSDrILGtJydNVd6hgve3hfKZm6L320C4f+d50uy3zBN5r4R4BhN9qSzK0/5t5536TnUduLOfu4xEhDeC/jefGShilxwy+TFrrSnTIEl3JpbV2Yd4z7+0uKq5spR9L12zXiqiR/V9AHdntxu2tDdbb6lL6T/Hm8PJvGGIR/EaBRG9nPTP9UshvAvefuUmoPn7KvPjbG3o7okaFDvzKK/NEt/7iQPUx4cAf8SStgGdR1YVcCyecmhlSVwEFqCHFAGFkE2ZltlLmlYfQ90SVWLeQFClPd2HkkUyrsvfEqyzKSOCDBfv7uNOdGAjhHIKY0XVTDi9cGs3R8ziRIYVbpcVZVpKhRBzWXg0k=
+  file: release.zip
+  skip_cleanup: true
