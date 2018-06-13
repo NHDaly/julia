@@ -117,4 +117,5 @@ deploy:
   file: release.zip
   skip_cleanup: true
   on:
-    tags
+    branch: ApplicationBuilder/julia.customBuild
+
