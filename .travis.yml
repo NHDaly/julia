@@ -17,6 +17,7 @@ branches:
     - /^release-.*/
     - /^v\d+\.\d+\.\d+$/
     - ApplicationBuilder/julia.customBuild  # (NHDALY): My custom branch.
+    - /^v\d+\.\d+\.\d+-ApplicationBuilder*$/ # (NHDALY): For my custom version tags.
 notifications:
     email: false
 before_install:
@@ -109,12 +110,11 @@ script:
 # after_success:
 #     - cd julia && make -C doc deploy
 
--deploy:
+deploy:
   provider: releases
   api_key:
     secure: rIj35LAY3Db5+EDGqX1BIe6SfjeioCyMTT4KD9E+Pk14ScwrSJBA2DHpmWE/jjbjuyoOLRJC0IS4mfWyfy5e5Lh2JKBo0Ov6khSw+RZ+QcQcv6fe5LooqOX3hCsJToKSM/iY2ULMsiKBWEJB7GRewR2W570j6SEkQ6HDbxaKKy2z53e4ZmLLUbWE1HUx0VfWVtCzIr4DGCArNES2KDWhqotH7hGMgr2JhYgUnhK1YUNjEjO3URrNOU7MbQBN3rOuXBDb9PB6v5yGgHHUZVuxDObHZ+qe1nafZYXbSTUcy6i5t5ZTWZoxuTL7Tnn5dwhbfpoGOiMhpkHSDrILGtJydNVd6hgve3hfKZm6L320C4f+d50uy3zBN5r4R4BhN9qSzK0/5t5536TnUduLOfu4xEhDeC/jefGShilxwy+TFrrSnTIEl3JpbV2Yd4z7+0uKq5spR9L12zXiqiR/V9AHdntxu2tDdbb6lL6T/Hm8PJvGGIR/EaBRG9nPTP9UshvAvefuUmoPn7KvPjbG3o7okaFDvzKK/NEt/7iQPUx4cAf8SStgGdR1YVcCyecmhlSVwEFqCHFAGFkE2ZltlLmlYfQ90SVWLeQFClPd2HkkUyrsvfEqyzKSOCDBfv7uNOdGAjhHIKY0XVTDi9cGs3R8ziRIYVbpcVZVpKhRBzWXg0k=
   file: release.zip
   skip_cleanup: true
   on:
-    branch: ApplicationBuilder/julia.customBuild
-
+    tags
