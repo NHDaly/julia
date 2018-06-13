@@ -102,14 +102,13 @@ script:
             install -pm755 usr/lib/lib${name}*.dylib* /tmp/julia/lib/julia/;
         done;
       fi
+# uncomment the following if failures are suspected to be due to the out-of-memory killer
+#    - dmesg
+after_success:
     # (NHDALY): This creates the release.
     - /tmp/julia/bin/julia -E 'Pkg.add("PackageCompiler"); build_executable(joinpath(Pkg.dir(), "PackageCompiler", "examples", "hello.jl"); builddir="/tmp/jl_builddir")'
     - echo "TEST -- HI NATHAN!" >> /tmp/julia/test-nathan.txt
     - zip -r release.zip /tmp/julia /tmp/jl_builddir
-# uncomment the following if failures are suspected to be due to the out-of-memory killer
-#    - dmesg
-# after_success:
-#     - cd julia && make -C doc deploy
 
 deploy:
   provider: releases
