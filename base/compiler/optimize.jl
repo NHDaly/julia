@@ -246,10 +246,13 @@ function optimize(opt::OptimizationState, @nospecialize(result))
             bonus += opt.params.inline_cost_threshold*19
         end
         opt.src.inlineable = isinlineable(def, opt, bonus)
-        inlining_too_expensive = isinlineable(def, opt, bonus*20)
-        if opt.src.inlineable != inlining_too_expensive
+        wouldve_inlined = isinlineable(def, opt, bonus*20)
+        if !opt.src.inlineable && wouldve_inlined
             println("<----- nhdaly: Inlining Change! ----->")
             println(opt.linfo)
+            #let file,linenum = functionloc(opt.linfo)
+            #    println("at $file:$linenum")
+            #end
         end
     end
     nothing
