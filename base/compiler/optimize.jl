@@ -241,12 +241,13 @@ function optimize(opt::OptimizationState, @nospecialize(result))
         if result ⊑ Tuple && !isbitstype(widenconst(result))
             bonus = opt.params.inline_tupleret_bonus
         end
+        wouldve_inlined = false
         if opt.src.inlineable
             # For functions declared @inline, increase the cost threshold 20x
             bonus += opt.params.inline_cost_threshold*19
+            wouldve_inlined = isinlineable(def, opt, bonus*20)
         end
         opt.src.inlineable = isinlineable(def, opt, bonus)
-        wouldve_inlined = isinlineable(def, opt, bonus*20)
         if !opt.src.inlineable && wouldve_inlined
             println("<----- nhdaly: Inlining Change! ----->")
             println(opt.linfo)
