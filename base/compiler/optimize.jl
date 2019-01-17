@@ -161,6 +161,9 @@ end
 
 # run the optimization work
 function optimize(opt::OptimizationState, @nospecialize(result))
+    #global _opt = opt
+    #println("HI it's NATHAN")
+    #@show opt
     def = opt.linfo.def
     nargs = Int(opt.nargs) - 1
     @timeit "optimizer" ir = run_passes(opt.src, nargs, opt)
@@ -243,6 +246,11 @@ function optimize(opt::OptimizationState, @nospecialize(result))
             bonus += opt.params.inline_cost_threshold*19
         end
         opt.src.inlineable = isinlineable(def, opt, bonus)
+        inlining_too_expensive = isinlineable(def, opt, bonus*20)
+        if opt.src.inlineable != inlining_too_expensive
+            println("<----- nhdaly: Inlining Change! ----->")
+            println(opt.linfo)
+        end
     end
     nothing
 end
