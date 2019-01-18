@@ -119,7 +119,10 @@ function add_backedge!(li::MethodInstance, caller::OptimizationState)
     nothing
 end
 
-function isinlineable(m::Method, me::OptimizationState, bonus::Int=0)
+function isinlineable(m::Method, me::OptimizationState, bonus::Int=0, nhdaly_already_recursed=false)
+    # ------ NHDALY -------------------------
+    nhdaly_manually_marked_inline = me.src.inlineable
+    # ---------------------------
     # compute the cost (size) of inlining this code
     inlineable = false
     cost_threshold = me.params.inline_cost_threshold
@@ -137,8 +140,16 @@ function isinlineable(m::Method, me::OptimizationState, bonus::Int=0)
         end
     end
     if !inlineable
-        inlineable = inline_worthy(me.src.code, me.src, me.sp, me.slottypes, me.params, cost_threshold + bonus)
+        inlineable, bodycost = inline_worthy(me.src.code, me.src, me.sp, me.slottypes, me.params, cost_threshold + bonus)
     end
+    # ------ NHDALY -------------------------
+    if (!nhdaly_already_recursed && nhdaly_manually_marked_inline)
+        wouldve_inlined = isinlineable(m, me, bonus*100000, true)
+        if !inlineable && wouldve_inlined
+            print("(nhdaly) "); print(me.linfo); print(" --- cost: "); println(bodycost)
+        end
+    end
+
     return inlineable
 end
 
@@ -241,19 +252,11 @@ function optimize(opt::OptimizationState, @nospecialize(result))
         if result ⊑ Tuple && !isbitstype(widenconst(result))
             bonus = opt.params.inline_tupleret_bonus
         end
-        wouldve_inlined = false
         if opt.src.inlineable
             # For functions declared @inline, increase the cost threshold 20x
             bonus += opt.params.inline_cost_threshold*19
-            wouldve_inlined = isinlineable(def, opt, bonus*20)
         end
         opt.src.inlineable = isinlineable(def, opt, bonus)
-        if !opt.src.inlineable && wouldve_inlined
-            print("(nhdaly) "); println(opt.linfo)
-            #let file,linenum = functionloc(opt.linfo)
-            #    println("at $file:$linenum")
-            #end
-        end
     end
     nothing
 end
@@ -382,22 +385,26 @@ end
 function inline_worthy(body::Array{Any,1}, src::CodeInfo, spvals::SimpleVector, slottypes::Vector{Any},
                        params::Params, cost_threshold::Integer=params.inline_cost_threshold)
     bodycost::Int = 0
-    for line = 1:length(body)
-        stmt = body[line]
-        if stmt isa Expr
-            thiscost = statement_cost(stmt, line, src, spvals, slottypes, params)::Int
-        elseif stmt isa GotoNode
-            # loops are generally always expensive
-            # but assume that forward jumps are already counted for from
-            # summing the cost of the not-taken branch
-            thiscost = stmt.label < line ? 40 : 0
-        else
-            continue
+    function inner()
+        for line = 1:length(body)
+            stmt = body[line]
+            if stmt isa Expr
+                thiscost = statement_cost(stmt, line, src, spvals, slottypes, params)::Int
+            elseif stmt isa GotoNode
+                # loops are generally always expensive
+                # but assume that forward jumps are already counted for from
+                # summing the cost of the not-taken branch
+                thiscost = stmt.label < line ? 40 : 0
+            else
+                continue
+            end
+            bodycost = plus_saturate(bodycost, thiscost)
+            bodycost > cost_threshold && return false
         end
-        bodycost = plus_saturate(bodycost, thiscost)
-        bodycost > cost_threshold && return false
+        return true
     end
-    return true
+    out = inner()
+    return out, bodycost
 end
 
 function is_known_call(e::Expr, @nospecialize(func), src, spvals::SimpleVector, slottypes::Vector{Any} = empty_slottypes)
