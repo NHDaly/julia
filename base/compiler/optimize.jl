@@ -249,8 +249,7 @@ function optimize(opt::OptimizationState, @nospecialize(result))
         end
         opt.src.inlineable = isinlineable(def, opt, bonus)
         if !opt.src.inlineable && wouldve_inlined
-            println("<----- nhdaly: Inlining Change! ----->")
-            println(opt.linfo)
+            print("(nhdaly) "); println(opt.linfo)
             #let file,linenum = functionloc(opt.linfo)
             #    println("at $file:$linenum")
             #end
