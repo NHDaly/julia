@@ -264,7 +264,11 @@ function sync(exception_handler, block)
     quote
         let $var = Any[]
             v = $(esc(block))
-            sync_end($var, $exception_handler)
+            if $exception_handler != nothing
+                sync_end($var, $exception_handler)
+            else
+                sync_end($var)
+            end
             v
         end
     end
