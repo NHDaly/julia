@@ -207,7 +207,7 @@ end
 ## lexically-scoped waiting for multiple items
 
 function sync_end(refs, exception_handler)
-    exceptions_channel = Channel{CapturedException}(0)
+    exceptions_channel = Channel{Union{Nothing, CapturedException}}(0)
     for r in refs
         @async begin
             try
