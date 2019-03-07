@@ -206,6 +206,24 @@ end
 
 ## lexically-scoped waiting for multiple items
 
+function sync_end(refs, exception_handler)
+    for r in refs
+        @async begin
+            try
+                wait(r)
+            catch
+                if !isa(r, Task) || (isa(r, Task) && !istaskfailed(r))
+                    rethrow()
+                end
+            finally
+                if isa(r, Task) && istaskfailed(r)
+                    e = CapturedException(task_result(r), r.backtrace)
+                    exception_handler(e)
+                end
+            end
+        end
+    end
+end
 function sync_end(refs)
     c_ex = CompositeException()
     for r in refs
@@ -237,12 +255,16 @@ Wait until all lexically-enclosed uses of `@async`, `@spawn`, `@spawnat` and `@d
 are complete. All exceptions thrown by enclosed async operations are collected and thrown as
 a `CompositeException`.
 """
-macro sync(block)
+macro sync(args...)
+    sync(args...)
+end
+sync(block) = sync(nothing, block)
+function sync(exception_handler, block)
     var = esc(sync_varname)
     quote
         let $var = Any[]
             v = $(esc(block))
-            sync_end($var)
+            sync_end($var, $exception_handler)
             v
         end
     end
