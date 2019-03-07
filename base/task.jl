@@ -207,22 +207,35 @@ end
 ## lexically-scoped waiting for multiple items
 
 function sync_end(refs, exception_handler)
+    exceptions_channel = Channel{CapturedException}(0)
     for r in refs
         @async begin
             try
                 wait(r)
             catch
                 if !isa(r, Task) || (isa(r, Task) && !istaskfailed(r))
+                    # TODO: Of course this isn't going to do anything now
                     rethrow()
                 end
             finally
                 if isa(r, Task) && istaskfailed(r)
                     e = CapturedException(task_result(r), r.backtrace)
-                    exception_handler(e)
+                    put!(exceptions_channel, e)
+                else
+                    put!(exceptions_channel, nothing)
                 end
             end
         end
     end
+
+    for _ in 1:length(refs)
+        e = take!(exceptions_channel)
+        if e !== nothing
+            exception_handler(CompositeException([e]))
+        end
+    end
+
+    nothing
 end
 function sync_end(refs)
     c_ex = CompositeException()
