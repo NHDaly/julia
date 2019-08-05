@@ -797,6 +797,21 @@ end
 isgenerated(m::Method) = isdefined(m, :generator)
 isgenerated(m::Core.MethodInstance) = isgenerated(m.def)
 
+function generated_expand(@nospecialize(f), @nospecialize(t=Tuple))
+    return map(method_instances(f, t)) do m
+        if (!isgenerated(m)) error("Matching method ", m, " is not a `@generated` method.") end
+        if may_invoke_generator(m)
+            # TODO: This needs to be called at the correct world-age. This requires a new C API.
+            #return m.def.generator.gen(m, t...)
+            return ccall(:jl_generated_expand, Any, (Any,), m)
+        else
+            error("Could not expand generator for `@generated` method ", m, ". ",
+            "This can happen if the provided argument types (", t, ") are ",
+            "not leaf types, but the `generated` argument is `true`.")
+        end
+    end
+end
+
 # low-level method lookup functions used by the compiler
 
 unionlen(x::Union) = unionlen(x.a) + unionlen(x.b)

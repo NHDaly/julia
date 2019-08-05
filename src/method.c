@@ -376,33 +376,85 @@ STATIC_INLINE jl_value_t *jl_call_staged(jl_method_t *def, jl_value_t *generator
     return code;
 }
 
+// static jl_value_t* run_ {
+//     jl_ptls_t ptls = jl_get_ptls_states();
+//     int last_lineno = jl_lineno;
+//     int last_in = ptls->in_pure_callback;
+//     size_t last_age = jl_get_ptls_states()->world_age;
+//
+//     JL_TRY {
+//         ptls->in_pure_callback = 1;
+//         // and the right world
+//         ptls->world_age = def->primary_world;
+//
+//
+//
+//         ptls->in_pure_callback = last_in;
+//         jl_lineno = last_lineno;
+//         ptls->world_age = last_age;
+//     }
+//     JL_CATCH {
+//         ptls->in_pure_callback = last_in;
+//         jl_lineno = last_lineno;
+//         jl_rethrow();
+//     }
+// }
+
+#define RUN_PURE_IN_PRIMARY_WORLDAGE(def) jl_ptls_t ptls = jl_get_ptls_states(); \
+    assert(jl_is_method((def)));                                              \
+    int last_lineno = jl_lineno;                                            \
+    int last_in = ptls->in_pure_callback;                                   \
+    size_t last_age = jl_get_ptls_states()->world_age;                      \
+                                                                            \
+    JL_TRY {                                                                \
+        ptls->in_pure_callback = 1;                                         \
+        /* and the right world */                                           \
+        ptls->world_age = ((def)->primary_world);
+
+
+#define END_PURE_IN_WORLDAGE()                                              \
+        ptls->in_pure_callback = last_in;                                   \
+        jl_lineno = last_lineno;                                            \
+        ptls->world_age = last_age;                                         \
+    }                                                                       \
+    JL_CATCH {                                                              \
+        ptls->in_pure_callback = last_in;                                   \
+        /* TODO: Shouldn't this also set world_age? */                      \
+        /*ptls->world_age = last_age;*/                                     \
+        jl_lineno = last_lineno;                                            \
+        jl_rethrow();                                                       \
+    }
+
+static jl_value_t *call_staged_expand_ex(jl_method_instance_t *linfo) {
+    jl_method_t *def = linfo->def.method;
+    jl_value_t *generator = def->generator;
+    assert(generator != NULL);
+    assert(jl_is_method(def));
+
+    jl_value_t *tt = linfo->specTypes;
+    jl_tupletype_t *ttdt = (jl_tupletype_t*)jl_unwrap_unionall(tt);
+
+    return jl_call_staged(def, generator, linfo->sparam_vals, jl_svec_data(ttdt->parameters), jl_nparams(ttdt));
+}
+
 // return a newly allocated CodeInfo for the function signature
 // effectively described by the tuple (specTypes, env, Method) inside linfo
 JL_DLLEXPORT jl_code_info_t *jl_code_for_staged(jl_method_instance_t *linfo)
 {
     JL_TIMING(STAGED_FUNCTION);
-    jl_value_t *tt = linfo->specTypes;
+
     jl_method_t *def = linfo->def.method;
-    jl_value_t *generator = def->generator;
-    assert(generator != NULL);
-    assert(jl_is_method(def));
+
     jl_code_info_t *func = NULL;
     jl_value_t *ex = NULL;
     JL_GC_PUSH2(&ex, &func);
-    jl_ptls_t ptls = jl_get_ptls_states();
-    int last_lineno = jl_lineno;
-    int last_in = ptls->in_pure_callback;
-    size_t last_age = jl_get_ptls_states()->world_age;
 
-    JL_TRY {
-        ptls->in_pure_callback = 1;
-        // and the right world
-        ptls->world_age = def->primary_world;
+    RUN_PURE_IN_PRIMARY_WORLDAGE(def) {
 
         // invoke code generator
-        jl_tupletype_t *ttdt = (jl_tupletype_t*)jl_unwrap_unionall(tt);
-        ex = jl_call_staged(def, generator, linfo->sparam_vals, jl_svec_data(ttdt->parameters), jl_nparams(ttdt));
+        ex = call_staged_expand_ex(linfo);
 
+        // Create a CodeInfo from the returned expression
         if (jl_is_code_info(ex)) {
             func = (jl_code_info_t*)ex;
         }
@@ -420,19 +472,55 @@ JL_DLLEXPORT jl_code_info_t *jl_code_for_staged(jl_method_instance_t *linfo)
             jl_resolve_globals_in_ir(stmts, def->module, linfo->sparam_vals, 1);
         }
 
-        ptls->in_pure_callback = last_in;
-        jl_lineno = last_lineno;
-        ptls->world_age = last_age;
-        jl_linenumber_to_lineinfo(func, (jl_value_t*)def->name);
     }
-    JL_CATCH {
-        ptls->in_pure_callback = last_in;
-        jl_lineno = last_lineno;
-        jl_rethrow();
-    }
+    END_PURE_IN_WORLDAGE();
+
+    jl_linenumber_to_lineinfo(func, (jl_value_t*)def->name);
     JL_GC_POP();
     return func;
 }
+
+JL_DLLEXPORT jl_value_t *jl_generated_expand(jl_method_instance_t *linfo) {
+    jl_value_t *ex = NULL;
+
+    RUN_PURE_IN_PRIMARY_WORLDAGE(linfo->def.method) {
+        // invoke code generator
+        ex = call_staged_expand_ex(linfo);
+    }
+    END_PURE_IN_WORLDAGE();
+
+    return ex;
+}
+
+// JL_DLLEXPORT jl_value_t *jl_generated_expand(jl_method_instance_t *mi, jl_value_t *types)
+// {
+//     jl_ptls_t ptls = jl_get_ptls_states();
+//     int last_lineno = jl_lineno;
+//     int last_in = ptls->in_pure_callback;
+//     size_t last_age = jl_get_ptls_states()->world_age;
+//
+//     JL_TRY {
+//         ptls->in_pure_callback = 1;
+//         // and the right world
+//         ptls->world_age = def->primary_world;
+//
+//         jl_value_t *ex = jl_apply(mi, types);
+//
+//         ptls->in_pure_callback = last_in;
+//         jl_lineno = last_lineno;
+//         ptls->world_age = last_age;
+//
+//         return ex;
+//     }
+//     JL_CATCH {
+//         ptls->in_pure_callback = last_in;
+//         jl_lineno = last_lineno;
+//         ptls->world_age = last_age;
+//
+//         jl_rethrow();
+//     }
+// }
+
 
 JL_DLLEXPORT jl_code_info_t *jl_copy_code_info(jl_code_info_t *src)
 {

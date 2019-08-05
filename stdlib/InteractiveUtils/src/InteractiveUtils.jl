@@ -4,7 +4,7 @@ module InteractiveUtils
 
 export apropos, edit, less, code_warntype, code_llvm, code_native, methodswith, varinfo,
     versioninfo, subtypes, @which, @edit, @less, @functionloc, @code_warntype,
-    @code_typed, @code_lowered, @code_llvm, @code_native, clipboard
+    @code_typed, @code_lowered, @code_llvm, @code_native, @generated_expand, clipboard
 
 import Base.Docs.apropos
 

@@ -731,6 +731,7 @@ export
 # help and reflection
     code_typed,
     code_lowered,
+    generated_expand,
     fullname,
     functionloc,
     isconst,
