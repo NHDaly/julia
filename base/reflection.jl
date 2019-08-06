@@ -801,9 +801,9 @@ function generated_expand(@nospecialize(f), @nospecialize(t=Tuple))
     return map(method_instances(f, t)) do m
         if (!isgenerated(m)) error("Matching method ", m, " is not a `@generated` method.") end
         if may_invoke_generator(m)
-            # TODO: This needs to be called at the correct world-age. This requires a new C API.
-            #return m.def.generator.gen(m, t...)
-            return ccall(:jl_generated_expand, Any, (Any,), m)
+            # Invoke m.def.generator.gen(m, t...) at the correct world age
+            return Base._apply_generated_primary_world(m.def.generator.gen, (m, t.parameters...),
+                                                       worldage=m.def.primary_world)
         else
             error("Could not expand generator for `@generated` method ", m, ". ",
             "This can happen if the provided argument types (", t, ") are ",
@@ -811,6 +811,13 @@ function generated_expand(@nospecialize(f), @nospecialize(t=Tuple))
         end
     end
 end
+# This is basically just _apply_in_worldage, but I figure we don't want to do that for
+# anything but generated functions, so it has _generated_ in the name.
+_apply_generated_primary_world(args...; worldage) =
+    ccall(:jl_f__apply_generated_primary_world, Any, (Any,Ptr{Any},UInt32),
+          typeof(_apply_generated_primary_world), pointer([worldage, args...]), 1+length(args))
+
+
 
 # low-level method lookup functions used by the compiler
 

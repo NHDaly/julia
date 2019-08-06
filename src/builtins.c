@@ -667,6 +667,38 @@ JL_CALLABLE(jl_f__apply_latest)
     return ret;
 }
 
+// Convention: First argument must be the desired world-age
+JL_CALLABLE(jl_f__apply_generated_primary_world)
+{
+    // Get the world-age from the first argument, and pop it from args
+    uint64_t age = jl_unbox_uint64(args[0]);
+    args = args + 1;
+    nargs = nargs - 1;
+    //jl_printf(JL_STDERR, "age: %zu\n", age);
+
+    jl_ptls_t ptls = jl_get_ptls_states();
+    int last_in = ptls->in_pure_callback;
+    size_t last_age = ptls->world_age;
+    int last_lineno = jl_lineno;
+    jl_value_t *ret = NULL;
+    JL_TRY {
+        ptls->in_pure_callback = 1;
+        ptls->world_age = age;
+        ret = jl_f__apply(NULL, args, nargs);
+        ptls->world_age = last_age;
+        jl_lineno = last_lineno;
+        ptls->in_pure_callback = last_in;
+    }
+    JL_CATCH {
+        // TODO: Shouldn't this also set world_age?
+        // ptls->world_age = last_age;
+        jl_lineno = last_lineno;
+        ptls->in_pure_callback = last_in;
+        jl_rethrow();
+    }
+    return ret;
+}
+
 // tuples ---------------------------------------------------------------------
 
 JL_CALLABLE(jl_f_tuple)
