@@ -2,7 +2,6 @@
 
 ## basic task functions and TLS
 
-Core.Task(@nospecialize(f), reserved_stack::Int=0) = Core._Task(f, reserved_stack, ThreadSynchronizer())
 
 # Container for a captured exception and its backtrace. Can be serialized.
 struct CapturedException <: Exception
@@ -228,6 +227,56 @@ function task_local_storage(body::Function, key, val)
         hadkey ? (tls[key] = old) : delete!(tls, key)
     end
 end
+
+
+"""
+    fork_task_local_storage(key, value) -> (key,value) or nothing
+
+Whenever a new `Task` is created, all `(key,value)` pairs in the parent Task's
+`task_local_storage` are passed to this function, which gives a chance to _fork_ those pairs
+into the new child `Task`'s task local storage.
+
+Whatever new `(key, value)` pair is returned will be inserted into the new Task's
+`task_local_storage`. If `nothing` is returned, the child Task's storage will not be
+modified. This is the default behavior.
+
+This function is called from inside the newly created `Task` before anything else happens,
+so within this function `current_task()` will return the new Task.
+"""
+function fork_task_local_storage(key, value)
+    nothing
+end
+
+
+# ----------------------
+# Define the Core._Task() constructor to clone task_heritable_storage on construction.
+
+function _Task_fork_tls_from_parent(parent_tls)
+    tls = task_local_storage()
+    # Fork all (k,v) pairs from the parent's TLS into this task's TLS
+    for (k, v) in parent_tls
+        out = fork_task_local_storage(k,v)
+        if out !== nothing
+            (newkey, newval) = out
+            tls[newkey] = newval
+        end
+    end
+end
+function Core.Task(@nospecialize(f), reserved_stack::Int=0)
+    if current_task().storage !== nothing
+        let parent_tls = task_local_storage()
+            wrapped = () -> begin
+                _Task_fork_tls_from_parent(parent_tls);
+                f();
+            end
+            return Core._Task(wrapped, reserved_stack, ThreadSynchronizer())
+        end
+    else
+        return Core._Task(f, reserved_stack, ThreadSynchronizer())
+    end
+end
+
+# ----------------------------------------------------------------------
 
 # just wait for a task to be done, no error propagation
 function _wait(t::Task)
