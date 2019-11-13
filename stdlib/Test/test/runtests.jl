@@ -292,13 +292,13 @@ end
         @test true
     end
     @test typeof(ts) == Test.DefaultTestSet
-    @test ts.n_passed == 1
+    @test ts.n_passed[] == 1
     tss = @testset "@testset/for should return an array of testsets: $i" for i in 1:3
         @test true
     end
     @test length(tss) == 3
     @test typeof(tss[1]) == Test.DefaultTestSet
-    @test tss[1].n_passed == 1
+    @test tss[1].n_passed[] == 1
 end
 @testset "accounting" begin
     local ts, fails
@@ -378,7 +378,13 @@ end
         @test total_broken == 0
     end
     ts.anynonpass = false
-    deleteat!(Test.get_testset().results,1)
+    # Remove the testset with all the failures from the actual report.
+    begin
+        # Manually finish the testset:
+        this = Test.get_testset()
+        # Okay to rely on order, since within this Testset, there was no parallelism.
+        this.results = collect(this.results)[2:end]
+    end
 end
 
 @test .1+.1+.1 ≈ .3
@@ -388,14 +394,14 @@ ts = @testset "@testset should return the testset" begin
     @test true
 end
 @test typeof(ts) == Test.DefaultTestSet
-@test ts.n_passed == 1
+@test ts.n_passed[] == 1
 
 tss = @testset "@testset/for should return an array of testsets: $i" for i in 1:3
     @test true
 end
 @test length(tss) == 3
 @test typeof(tss[1]) == Test.DefaultTestSet
-@test tss[1].n_passed == 1
+@test tss[1].n_passed[] == 1
 
 # Issue #17908 (return)
 testset_depth17908 = Test.get_testset_depth()
@@ -918,3 +924,48 @@ end
     end
 end
 
+@testset "Asynchronous testsets embed correctly" begin
+    t = @testset "outer" begin
+        @sync begin
+            @async begin
+                @testset "inner1" begin
+                    @test true
+                end
+            end
+            @async begin
+                @testset "inner2" begin
+                    @test true
+                end
+            end
+        end
+    end
+
+    @test length(t.results) == 2
+end
+
+@static if VERSION >= v"1.3-"
+    @testset "Parallel asynchronous testsets embed correctly" begin
+        # Test that Testsets now work correctly across multiple threads
+        @testset "outerest" begin
+          @testset "outerer$i" for i in 1:10
+            t = @testset "outer" begin
+                @sync begin
+                    Threads.@spawn begin
+                        @testset "inner" begin
+                            @test true
+                        end
+                    end
+                    Threads.@spawn begin
+                        @testset "inner2" begin
+                            @test true
+                        end
+                    end
+                end
+            end
+
+            @test length(t.results) == 2
+          end
+        end
+
+    end
+end  # if julia 1.3

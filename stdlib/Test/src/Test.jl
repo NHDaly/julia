@@ -41,6 +41,8 @@ const DISPLAY_FAILED = (
     :isempty,
 )
 
+include("ThreadSafeAccumulators.jl")
+
 #-----------------------------------------------------------------------
 
 # Backtrace utility functions
@@ -744,16 +746,17 @@ along with a summary of the test results.
 """
 mutable struct DefaultTestSet <: AbstractTestSet
     description::AbstractString
-    results::Vector
-    n_passed::Int
+    results # Starts as ::ThreadSafeAccumulators.Accumulator, then becomes a Vector
+    n_passed::Threads.Atomic{Int}
     anynonpass::Bool
 end
-DefaultTestSet(desc) = DefaultTestSet(desc, [], 0, false)
+DefaultTestSet(desc) = DefaultTestSet(desc, ThreadSafeAccumulators.Accumulator(),
+                                      Threads.Atomic{Int}(0), false)
 
 # For a broken result, simply store the result
 record(ts::DefaultTestSet, t::Broken) = (push!(ts.results, t); t)
 # For a passed result, do not store the result since it uses a lot of memory
-record(ts::DefaultTestSet, t::Pass) = (ts.n_passed += 1; t)
+record(ts::DefaultTestSet, t::Pass) = (ts.n_passed[] += 1; t)
 
 # For the other result types, immediately print the error message
 # but do not terminate. Print a backtrace.
@@ -783,7 +786,7 @@ record(ts::DefaultTestSet, t::AbstractTestSet) = push!(ts.results, t)
 @specialize
 
 function print_test_errors(ts::DefaultTestSet)
-    for t in ts.results
+    for t in collect(ts.results)
         if (isa(t, Error) || isa(t, Fail)) && myid() == 1
             println("Error in testset $(ts.description):")
             Base.show(stdout,t)
@@ -847,6 +850,9 @@ const TESTSET_PRINT_ENABLE = Ref(true)
 # Called at the end of a @testset, behaviour depends on whether
 # this is a child of another testset, or the "root" testset
 function finish(ts::DefaultTestSet)
+    # Turn the Accumulator into a Result
+    ts.results = collect(ts.results)
+
     # If we are a nested test set, do not print a full summary
     # now - let the parent test set do the printing
     if get_testset_depth() != 0
@@ -889,8 +895,8 @@ function get_alignment(ts::DefaultTestSet, depth::Int)
     !ts.anynonpass && return ts_width
     # Return the maximum of this width and the minimum width
     # for all children (if they exist)
-    isempty(ts.results) && return ts_width
-    child_widths = map(t->get_alignment(t, depth+1), ts.results)
+    isempty(collect(ts.results)) && return ts_width
+    child_widths = map(t->get_alignment(t, depth+1), collect(ts.results))
     return max(ts_width, maximum(child_widths))
 end
 get_alignment(ts, depth::Int) = 0
@@ -899,7 +905,7 @@ get_alignment(ts, depth::Int) = 0
 # or failures the testset and its children encountered
 function filter_errors(ts::DefaultTestSet)
     efs = []
-    for t in ts.results
+    for t in collect(ts.results)
         if isa(t, DefaultTestSet)
             append!(efs, filter_errors(t))
         elseif isa(t, Union{Fail, Error})
@@ -912,9 +918,9 @@ end
 # Recursive function that counts the number of test results of each
 # type directly in the testset, and totals across the child testsets
 function get_test_counts(ts::DefaultTestSet)
-    passes, fails, errors, broken = ts.n_passed, 0, 0, 0
+    passes, fails, errors, broken = ts.n_passed[], 0, 0, 0
     c_passes, c_fails, c_errors, c_broken = 0, 0, 0, 0
-    for t in ts.results
+    for t in collect(ts.results)
         isa(t, Fail)   && (fails  += 1)
         isa(t, Error)  && (errors += 1)
         isa(t, Broken) && (broken += 1)
@@ -983,7 +989,7 @@ function print_counts(ts::DefaultTestSet, depth, align,
 
     # Only print results at lower levels if we had failures
     if np + nb != subtotal
-        for t in ts.results
+        for t in collect(ts.results)
             if isa(t, DefaultTestSet)
                 print_counts(t, depth + 1, align,
                     pass_width, fail_width, error_width, broken_width, total_width)
@@ -1242,6 +1248,14 @@ end
 #-----------------------------------------------------------------------
 # Various helper methods for test sets
 
+struct TestSetStackTLSKey end
+const testsets_tls_key = TestSetStackTLSKey()
+# Pass the stack of testsest on to child Tasks whenever new Tasks are spawned.
+# _Fork_ the stack instead of sharing it (via `copy(v)`), so that child tasks don't clobber
+# eachother's stacks.
+Base.fork_task_local_storage(k::TestSetStackTLSKey, v) = (k, copy(v))
+
+
 """
     get_testset()
 
@@ -1249,7 +1263,7 @@ Retrieve the active test set from the task's local storage. If no
 test set is active, use the fallback default test set.
 """
 function get_testset()
-    testsets = get(task_local_storage(), :__BASETESTNEXT__, AbstractTestSet[])
+    testsets = get(task_local_storage(), testsets_tls_key, AbstractTestSet[])
     return isempty(testsets) ? fallback_testset : testsets[end]
 end
 
@@ -1259,9 +1273,9 @@ end
 Adds the test set to the task_local_storage.
 """
 function push_testset(ts::AbstractTestSet)
-    testsets = get(task_local_storage(), :__BASETESTNEXT__, AbstractTestSet[])
+    testsets = get(task_local_storage(), testsets_tls_key, AbstractTestSet[])
     push!(testsets, ts)
-    setindex!(task_local_storage(), testsets, :__BASETESTNEXT__)
+    setindex!(task_local_storage(), testsets, testsets_tls_key)
 end
 
 """
@@ -1271,9 +1285,9 @@ Pops the last test set added to the task_local_storage. If there are no
 active test sets, returns the fallback default test set.
 """
 function pop_testset()
-    testsets = get(task_local_storage(), :__BASETESTNEXT__, AbstractTestSet[])
+    testsets = get(task_local_storage(), testsets_tls_key, AbstractTestSet[])
     ret = isempty(testsets) ? fallback_testset : pop!(testsets)
-    setindex!(task_local_storage(), testsets, :__BASETESTNEXT__)
+    setindex!(task_local_storage(), testsets, testsets_tls_key)
     return ret
 end
 
@@ -1283,7 +1297,7 @@ end
 Returns the number of active test sets, not including the default test set
 """
 function get_testset_depth()
-    testsets = get(task_local_storage(), :__BASETESTNEXT__, AbstractTestSet[])
+    testsets = get(task_local_storage(), testsets_tls_key, AbstractTestSet[])
     return length(testsets)
 end
 
