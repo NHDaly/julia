@@ -239,10 +239,17 @@ const HWNumber = Union{HWReal, Complex{<:HWReal}, Rational{<:HWReal}}
 # numeric types.  In terms of Val we can do it much more simply.
 # (The first argument prevents unexpected behavior if a function ^
 # is defined that is not equal to Base.^)
-@inline literal_pow(::typeof(^), x::HWNumber, ::Val{0}) = one(x)
-@inline literal_pow(::typeof(^), x::HWNumber, ::Val{1}) = x
-@inline literal_pow(::typeof(^), x::HWNumber, ::Val{2}) = x*x
-@inline literal_pow(::typeof(^), x::HWNumber, ::Val{3}) = x*x*x
+@inline @generated function literal_pow(f::typeof(^), x::HWNumber, ::Val{p}) where {p}
+    if p < 0
+        :(literal_pow(^, inv(x), $(Val{-p}())))
+    elseif p == 0
+        :(one(x))
+    else
+        p = 5
+        Expr(:call, :*, [:x for _ in 1:p]...)
+    end
+end
+
 
 # don't use the inv(x) transformation here since float^p is slightly more accurate
 @inline literal_pow(::typeof(^), x::AbstractFloat, ::Val{p}) where {p} = x^p
