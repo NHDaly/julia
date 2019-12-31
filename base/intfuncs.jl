@@ -245,7 +245,6 @@ const HWNumber = Union{HWReal, Complex{<:HWReal}, Rational{<:HWReal}}
     elseif p == 0
         :(one(x))
     else
-        p = 5
         Expr(:call, :*, [:x for _ in 1:p]...)
     end
 end
