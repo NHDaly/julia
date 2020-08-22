@@ -504,6 +504,7 @@ CompilerResultT JuliaOJIT::CompilerT::operator()(Module &M)
     uint64_t start_time = 0;
     if (dump_llvm_opt_stream != NULL) {
         dump_llvm_opt_counter++;
+        // Print LLVM function statistics _before_ optimization
         for (auto &F : M.functions()) {
             if (F.getInstructionCount() == 0 || F.getName().str().rfind("jfptr_", 0) == 0) {
                 continue;
@@ -521,11 +522,10 @@ CompilerResultT JuliaOJIT::CompilerT::operator()(Module &M)
             // TODO: Consider switching to a more structured output format; might be easier.
             jl_printf(dump_llvm_opt_stream, "%d\tname\t%s\n",
                       dump_llvm_opt_counter, F.getName().str().c_str());
-            jl_printf(dump_llvm_opt_stream, "%d\tinstructions:%s\t%u\n",
+            jl_printf(dump_llvm_opt_stream, "%d\tbefore/instructions:%s\t%u\n",
                       dump_llvm_opt_counter, F.getName().str().c_str(), F.getInstructionCount());
-            jl_printf(dump_llvm_opt_stream, "%d\tbasicblocks:%s\t%u\n",
+            jl_printf(dump_llvm_opt_stream, "%d\tbefore/basicblocks:%s\t%u\n",
                       dump_llvm_opt_counter, F.getName().str().c_str(), bbs);
-            // TODO(PR): Add before/after of number of basic blocks & instructions
         }
 
         start_time = jl_hrtime();
@@ -579,6 +579,27 @@ CompilerResultT JuliaOJIT::CompilerT::operator()(Module &M)
         end_time = jl_hrtime();
         jl_printf(dump_llvm_opt_stream, "%d\ttime_ns\t%" PRIu64 "\n",
                   dump_llvm_opt_counter, end_time - start_time);
+
+        // Print LLVM function statistics _after_ optimization
+        for (auto &F : M.functions()) {
+            if (F.getInstructionCount() == 0 || F.getName().str().rfind("jfptr_", 0) == 0) {
+                continue;
+            }
+
+            // Count number of Basic Blocks
+            int bbs = 0;
+            for (auto &B : F.getBasicBlockList()) {
+                std::ignore = B;
+                ++bbs;
+            }
+
+            jl_printf(dump_llvm_opt_stream, "%d\tafter/instructions:%s\t%u\n",
+                      dump_llvm_opt_counter, F.getName().str().c_str(), F.getInstructionCount());
+            jl_printf(dump_llvm_opt_stream, "%d\tafter/basicblocks:%s\t%u\n",
+                      dump_llvm_opt_counter, F.getName().str().c_str(), bbs);
+        }
+
+        start_time = jl_hrtime();
     }
 
     return CompilerResultT(std::move(ObjBuffer));
