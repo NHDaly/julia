@@ -41,6 +41,12 @@ void jl_dump_compiles(void *s)
 {
     dump_compiles_stream = (JL_STREAM*)s;
 }
+JL_STREAM *dump_llvm_opt_stream = NULL;
+extern "C" JL_DLLEXPORT
+void jl_dump_llvm_opt(void *s)
+{
+    dump_llvm_opt_stream = (JL_STREAM*)s;
+}
 
 static void jl_add_to_ee();
 static void jl_add_to_ee(std::unique_ptr<Module> &M, StringMap<std::unique_ptr<Module>*> &NewExports);
@@ -491,9 +497,42 @@ static void addPassesForOptLevel(legacy::PassManager &PM, TargetMachine &TM, raw
         llvm_unreachable("Target does not support MC emission.");
 }
 
+int dump_llvm_opt_counter = 0;
+
 CompilerResultT JuliaOJIT::CompilerT::operator()(Module &M)
 {
+    uint64_t start_time = 0;
+    if (dump_llvm_opt_stream != NULL) {
+        dump_llvm_opt_counter++;
+        for (auto &F : M.functions()) {
+            if (F.getInstructionCount() == 0 || F.getName().str().rfind("jfptr_", 0) == 0) {
+                continue;
+            }
+
+            // Count number of Basic Blocks
+            int bbs = 0;
+            for (auto &B : F.getBasicBlockList()) {
+                std::ignore = B;
+                ++bbs;
+            }
+
+            // We print the data as Entity-Attribute-Value CSV rows, because we have to
+            // squeeze different formats of data into the same number of columns.
+            // TODO: Consider switching to a more structured output format; might be easier.
+            jl_printf(dump_llvm_opt_stream, "%d\tname\t%s\n",
+                      dump_llvm_opt_counter, F.getName().str().c_str());
+            jl_printf(dump_llvm_opt_stream, "%d\tinstructions:%s\t%u\n",
+                      dump_llvm_opt_counter, F.getName().str().c_str(), F.getInstructionCount());
+            jl_printf(dump_llvm_opt_stream, "%d\tbasicblocks:%s\t%u\n",
+                      dump_llvm_opt_counter, F.getName().str().c_str(), bbs);
+            // TODO(PR): Add before/after of number of basic blocks & instructions
+        }
+
+        start_time = jl_hrtime();
+    }
+
     JL_TIMING(LLVM_OPT);
+
     int optlevel;
     if (jl_generating_output()) {
         optlevel = 0;
@@ -533,6 +572,13 @@ CompilerResultT JuliaOJIT::CompilerT::operator()(Module &M)
         OS.flush();
         llvm::report_fatal_error("FATAL: Unable to compile LLVM Module: '" + Buf + "'\n"
                                  "The module's content was printed above. Please file a bug report");
+    }
+
+    uint64_t end_time = 0;
+    if (dump_llvm_opt_stream != NULL) {
+        end_time = jl_hrtime();
+        jl_printf(dump_llvm_opt_stream, "%d\ttime_ns\t%" PRIu64 "\n",
+                  dump_llvm_opt_counter, end_time - start_time);
     }
 
     return CompilerResultT(std::move(ObjBuffer));
