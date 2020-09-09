@@ -497,19 +497,20 @@ static void addPassesForOptLevel(legacy::PassManager &PM, TargetMachine &TM, raw
         llvm_unreachable("Target does not support MC emission.");
 }
 
-int dump_llvm_opt_counter = 0;
-
 CompilerResultT JuliaOJIT::CompilerT::operator()(Module &M)
 {
     uint64_t start_time = 0;
     if (dump_llvm_opt_stream != NULL) {
-        dump_llvm_opt_counter++;
         // Print LLVM function statistics _before_ optimization
+        // Print all the information about this invocation as a YAML object
+        jl_printf(dump_llvm_opt_stream, "- \n");
+        // We print the name and some statistics for each function in the module, both
+        // before optimization and again afterwards.
+        jl_printf(dump_llvm_opt_stream, "  before: \n");
         for (auto &F : M.functions()) {
             if (F.getInstructionCount() == 0 || F.getName().str().rfind("jfptr_", 0) == 0) {
                 continue;
             }
-
             // Count number of Basic Blocks
             int bbs = 0;
             for (auto &B : F.getBasicBlockList()) {
@@ -517,15 +518,10 @@ CompilerResultT JuliaOJIT::CompilerT::operator()(Module &M)
                 ++bbs;
             }
 
-            // We print the data as Entity-Attribute-Value CSV rows, because we have to
-            // squeeze different formats of data into the same number of columns.
-            // TODO: Consider switching to a more structured output format; might be easier.
-            jl_printf(dump_llvm_opt_stream, "%d\tname\t%s\n",
-                      dump_llvm_opt_counter, F.getName().str().c_str());
-            jl_printf(dump_llvm_opt_stream, "%d\tbefore/instructions:%s\t%u\n",
-                      dump_llvm_opt_counter, F.getName().str().c_str(), F.getInstructionCount());
-            jl_printf(dump_llvm_opt_stream, "%d\tbefore/basicblocks:%s\t%u\n",
-                      dump_llvm_opt_counter, F.getName().str().c_str(), bbs);
+            // Each function is printed as a YAML object with several attributes
+            jl_printf(dump_llvm_opt_stream, "    %s:\n", F.getName().str().c_str());
+            jl_printf(dump_llvm_opt_stream, "        instructions: %u\n", F.getInstructionCount());
+            jl_printf(dump_llvm_opt_stream, "        basicblocks: %u\n", bbs);
         }
 
         start_time = jl_hrtime();
@@ -577,10 +573,10 @@ CompilerResultT JuliaOJIT::CompilerT::operator()(Module &M)
     uint64_t end_time = 0;
     if (dump_llvm_opt_stream != NULL) {
         end_time = jl_hrtime();
-        jl_printf(dump_llvm_opt_stream, "%d\ttime_ns\t%" PRIu64 "\n",
-                  dump_llvm_opt_counter, end_time - start_time);
+        jl_printf(dump_llvm_opt_stream, "  time_ns: %" PRIu64 "\n", end_time - start_time);
 
         // Print LLVM function statistics _after_ optimization
+        jl_printf(dump_llvm_opt_stream, "  after: \n");
         for (auto &F : M.functions()) {
             if (F.getInstructionCount() == 0 || F.getName().str().rfind("jfptr_", 0) == 0) {
                 continue;
@@ -593,13 +589,10 @@ CompilerResultT JuliaOJIT::CompilerT::operator()(Module &M)
                 ++bbs;
             }
 
-            jl_printf(dump_llvm_opt_stream, "%d\tafter/instructions:%s\t%u\n",
-                      dump_llvm_opt_counter, F.getName().str().c_str(), F.getInstructionCount());
-            jl_printf(dump_llvm_opt_stream, "%d\tafter/basicblocks:%s\t%u\n",
-                      dump_llvm_opt_counter, F.getName().str().c_str(), bbs);
+            jl_printf(dump_llvm_opt_stream, "    %s:\n", F.getName().str().c_str());
+            jl_printf(dump_llvm_opt_stream, "        instructions: %u\n", F.getInstructionCount());
+            jl_printf(dump_llvm_opt_stream, "        basicblocks: %u\n", bbs);
         }
-
-        start_time = jl_hrtime();
     }
 
     return CompilerResultT(std::move(ObjBuffer));
