@@ -80,7 +80,7 @@ function reset_timings()
     empty!(_timings)
     push!(_timings, Timing(
         # The MethodInstance for ROOT(), and default empty values for other fields.
-        InferenceFrameInfo(ROOTmi, 0x0, Any[], Any[Core.Const(ROOT)]),
+        InferenceFrameInfo(ROOTmi, 0x0, Any[], Any[Core.Compiler.Const(ROOT)]),
         _time_ns()))
     return nothing
 end
