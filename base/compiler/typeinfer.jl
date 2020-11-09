@@ -191,7 +191,7 @@ const __measure_typeinf__ = fill(false)
 
 # Wrapper around _typeinf that optionally records the exclusive time for each invocation.
 function typeinf(frame::InferenceState)
-    if __measure_typeinf__[]
+    if __measure_typeinf__[1]
         Timings.enter_new_timer(frame)
         v = _typeinf(frame)
         Timings.exit_current_timer(frame)
