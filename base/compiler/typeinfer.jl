@@ -186,7 +186,7 @@ end  # module Timings
 
 If set to `true`, record per-method-instance timings within type inference in the Compiler.
 """
-__set_measure_typeinf(onoff::Bool) = __measure_typeinf__[] = onoff
+__set_measure_typeinf(onoff::Bool) = __measure_typeinf__[1] = onoff
 const __measure_typeinf__ = fill(false)
 
 # Wrapper around _typeinf that optionally records the exclusive time for each invocation.
