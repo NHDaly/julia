@@ -58,6 +58,8 @@ end
 # cumulative total time spent on compilation
 cumulative_compile_time_ns_before() = ccall(:jl_cumulative_compile_time_ns_before, UInt64, ())
 cumulative_compile_time_ns_after() = ccall(:jl_cumulative_compile_time_ns_after, UInt64, ())
+# cumulative total time this thread has spent on compilation since process start.
+cumulative_compile_time_ns() = ccall(:jl_cumulative_compile_time_ns, UInt64, ())
 
 # total time spend in garbage collection, in nanoseconds
 gc_time_ns() = ccall(:jl_gc_total_hrtime, UInt64, ())

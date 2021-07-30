@@ -90,6 +90,12 @@ uint64_t jl_cumulative_compile_time_ns_after()
     return jl_cumulative_compile_time[tid];
 }
 
+extern "C" JL_DLLEXPORT
+uint64_t jl_cumulative_compile_time_ns() {
+    int tid = jl_threadid();
+    return jl_cumulative_compile_time[tid];
+}
+
 // this generates llvm code for the lambda info
 // and adds the result to the jitlayers
 // (and the shadow module),
