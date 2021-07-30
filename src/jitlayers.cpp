@@ -79,14 +79,14 @@ extern "C" JL_DLLEXPORT
 uint64_t jl_cumulative_compile_time_ns_before()
 {
     int tid = jl_threadid();
-    jl_measure_compile_time[tid] = 1;
+    jl_measure_compile_time[tid] += 1;
     return jl_cumulative_compile_time[tid];
 }
 extern "C" JL_DLLEXPORT
 uint64_t jl_cumulative_compile_time_ns_after()
 {
     int tid = jl_threadid();
-    jl_measure_compile_time[tid] = 0;
+    jl_measure_compile_time[tid] -= 1;
     return jl_cumulative_compile_time[tid];
 }
 
