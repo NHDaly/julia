@@ -263,18 +263,19 @@ function timev_macro_scope()
 end
 @test timev_macro_scope() == 1
 
-
+# exercise concurrent calls to `@time` for reentrant compilation time measurement.
 t1 = @async @time begin
     sleep(2)
     @eval module M ; f(x,y) = x+y ; end
     @eval M.f(2,3)
 end
-
 t2 = @async begin
     sleep(1)
     @time 2 + 2
 end
 
+# Test that the total compilation time across all threads is including at least this thread.
+@test Base.process_cumulative_compile_time_ns() >= Base.cumulative_compile_time_ns()
 
 # interactive utilities
 
