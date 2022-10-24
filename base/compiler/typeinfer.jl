@@ -199,15 +199,33 @@ end
 
 # Whether or not inference Timing is enabled.
 mutable struct TimingInvocations
-    Core.Compiler.@atomic count::Int
+    # This should be `@atomic`, but it's not supported in 1.8 yet.
+    count::Int
 end
 const __measuring_typeinf = TimingInvocations(0)
 
 end  # module Timings
 
-__start_measuring_typeinf() = @atomic Timings.__measuring_typeinf.count += 1
-__stop_measuring_typeinf() = @atomic Timings.__measuring_typeinf.count -= 1
-__measure_typeinf() = @atomic(Timings.__measuring_typeinf.count) > 0
+function __start_measuring_typeinf()
+    ccall(:jl_typeinf_lock_begin, Cvoid, ())
+    try
+        Timings.__measuring_typeinf.count += 1
+    finally
+        ccall(:jl_typeinf_lock_end, Cvoid, ())
+    end
+end
+function __stop_measuring_typeinf()
+    ccall(:jl_typeinf_lock_begin, Cvoid, ())
+    try
+        Timings.__measuring_typeinf.count -= 1
+    finally
+        ccall(:jl_typeinf_lock_end, Cvoid, ())
+    end
+end
+function __measure_typeinf()
+    # Assumes typeinf_lock is held
+    return Timings.__measuring_typeinf.count > 0
+end
 # DEPRECATED:
 __set_measure_typeinf(onoff::Bool) = onoff ? __start_measuring_typeinf() : __stop_measuring_typeinf()
 
