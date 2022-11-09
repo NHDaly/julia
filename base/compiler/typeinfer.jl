@@ -155,6 +155,15 @@ end
 # assert that indeed we are always returning to a parent after finishing all of its
 # children (that is, asserting that inference proceeds via depth-first-search).
 @inline function exit_current_timer(_expected_frame_)
+    # KLUDGE TO SUPPORT CONCURRENT TIMING
+    # If a user enables timing while another Task is already halfway through an inference
+    # invocation, then when it tries exiting, it might try exiting a frame we never entered.
+    # The "last" frame will be the ROOT() frame, so if the length() is 1, we know there's
+    # no more frames to pop, so just quit.
+    if length(_timings) == 1
+        return
+    end
+
     # Finish the new timer
     stop_time = _time_ns()
 
