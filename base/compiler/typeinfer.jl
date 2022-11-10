@@ -86,13 +86,13 @@ start the ROOT() timer again. `ROOT()` measures all time spent _outside_ inferen
 function reset_timings()
     ccall(:jl_typeinf_lock_begin, Cvoid, ())
     try
-        root = Core.Compiler._timings[1]
+        #root = _timings[1]
         empty!(_timings)
         push!(_timings, Timing(
             # The MethodInstance for ROOT(), and default empty values for other fields.
             InferenceFrameInfo(ROOTmi, 0x0, Any[], Any[Core.Const(ROOT)], 1),
             _time_ns()))
-        return root
+        #return root
     finally
         ccall(:jl_typeinf_lock_end, Cvoid, ())
     end
