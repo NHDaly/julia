@@ -1,6 +1,7 @@
 // This file is a part of Julia. License is MIT: https://julialang.org/license
 
 #include "gc.h"
+#include "gc-arenas.h"
 #include "gc-page-profiler.h"
 #include "julia.h"
 #include "julia_atomics.h"
@@ -1308,6 +1309,9 @@ static NOINLINE jl_taggedvalue_t *gc_add_page(jl_gc_pool_t *p) JL_NOTSAFEPOINT
 STATIC_INLINE jl_value_t *jl_gc_pool_alloc_inner(jl_ptls_t ptls, int pool_offset,
                                           int osize)
 {
+    if (jl_gc_short_arena_is_enabled()) {
+        return gc_short_arena_alloc(ptls, osize);
+    }
     // Use the pool offset instead of the pool address as the argument
     // to workaround a llvm bug.
     // Ref https://llvm.org/bugs/show_bug.cgi?id=27190

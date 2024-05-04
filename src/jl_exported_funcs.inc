@@ -180,6 +180,9 @@
     XX(jl_gc_queue_root) \
     XX(jl_gc_safepoint) \
     XX(jl_gc_schedule_foreign_sweepfunc) \
+    XX(jl_gc_short_arena_set_enabled) \
+    XX(jl_gc_short_arena_is_enabled) \
+    XX(jl_gc_short_arena_free) \
     XX(jl_gc_set_cb_notify_external_alloc) \
     XX(jl_gc_set_cb_notify_external_free) \
     XX(jl_gc_set_cb_notify_gc_pressure) \
