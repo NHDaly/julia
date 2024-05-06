@@ -1,5 +1,10 @@
 // This file is a part of Julia. License is MIT: https://julialang.org/license
 
+// TODO:
+//  - Need to disable the arena whenever entering runtime code, like the compiler. Otherwise
+//    you can never turn it off, since the compiler objects are allocated in there!
+
+
 #ifndef JL_GC_ARENAS_H
 #define JL_GC_ARENAS_H
 

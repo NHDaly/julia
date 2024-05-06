@@ -99,6 +99,7 @@ jl_value_t* gc_short_arena_alloc_inner(jl_ptls_t ptls, int osize) {
     return jl_valueof(v);
 }
 void gc_free_short_arena_inner(void) {
+    jl_safe_printf("Freeing pages.\n");
     for (char* arena : arena_pages) {
         // TODO: Share all the fancy MADV_FREE stuff w/ GC pages.
         madvise(arena, ARENA_SIZE, MADV_DONTNEED);
